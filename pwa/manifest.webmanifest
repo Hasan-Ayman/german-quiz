@@ -1,0 +1,18 @@
+{
+  "id": "./",
+  "name": "مفردات · تدريب الألمانية",
+  "short_name": "مفردات",
+  "description": "تدريب على مفردات الألمانية للمستويين A1 وA2.",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f7f3",
+  "theme_color": "#f5f7f3",
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

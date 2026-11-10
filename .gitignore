@@ -1,0 +1,10 @@
+# Local source documents and unpublished extracted content
+/source-pdfs/
+/data/
+/reports/
+/.venv/
+/node_modules/
+/dist/
+*personal-vocabulary*.json
+*.[pP][dD][fF]
+__pycache__/
