@@ -8,7 +8,7 @@ import { fixtureDataset } from './fixtures'
 
 it('continues to accept the v1 file format and rejects a v2 file without its source inventory', () => {
   expect(validatePersonalDataset(fixtureDataset).version).toBe(1)
-  expect(() => validatePersonalDataset({ ...fixtureDataset, version: 2 })).toThrow(/inventory/)
+  expect(() => validatePersonalDataset({ ...fixtureDataset, version: 2 })).toThrow(/sourceRows/)
 })
 
 const privatePath = process.env.GERMAN_QUIZ_V2_TEST_FILE
@@ -20,6 +20,8 @@ describe.runIf(Boolean(privatePath))('full private v2 dataset', () => {
     const parsed = validatePersonalDataset(input)
     expect(parsed.version).toBe(2)
     expect(parsed.sourceRows).toHaveLength(1575)
+    expect(parsed.entries).toHaveLength(1433)
+    expect(parsed).toEqual(input)
     expect(new Set(parsed.sourceRows!.map(row => row.id)).size).toBe(1575)
     const reviewRows = new Set(parsed.sourceRows!.filter(row => row.verification_status === 'needs_manual_review')
       .map(row => row.id))

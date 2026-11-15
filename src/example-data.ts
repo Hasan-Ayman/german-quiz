@@ -23,7 +23,7 @@ export function readExampleMetadata(value: Record<string, unknown>): ExampleMeta
     const record = example_review as Partial<NonNullable<ExampleMetadata['example_review']>> | null
     if (!record || typeof record.method !== 'string' || !record.method.trim() || record.method.length > 160 ||
         typeof record.evidence !== 'string' || !/^[a-f0-9]{64}$/u.test(record.evidence)) throw new Error('Missing example review evidence')
-    review = { method: record.method, evidence: record.evidence }
+    review = { ...record, method: record.method, evidence: record.evidence }
   }
   return { source_type, grammar_focus, verification_status, source_page: source_page as number | null,
     source_row_id, ...(review ? { example_review: review } : {}) }
@@ -38,5 +38,5 @@ export function readSourceExample(value: unknown): SourceExample {
       /[\p{Script=Arabic}\u0000]/u.test(german) ||
       !(arabic === null || (typeof arabic === 'string' && arabic.length <= 3000 && /\p{Script=Arabic}/u.test(arabic) &&
         !/[\p{C}\uFFFD]/u.test(arabic)))) throw new Error('Invalid archived example text')
-  return { ...info, german, arabic, level } as SourceExample
+  return { ...candidate, ...info, german, arabic, level } as SourceExample
 }

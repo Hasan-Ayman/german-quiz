@@ -4,6 +4,7 @@ import { buildCatalog, germanKey, type Catalog, type Fact } from './quiz.ts'
 import { extendWithGrammar } from './grammar-quiz.ts'
 import type { ChapterKey } from './source-data'
 import type { QuizSettings } from './storage'
+import { ImportProblem } from './import-problem.ts'
 
 export interface PersonalQuiz {
   dataset: PersonalDataset
@@ -16,11 +17,12 @@ export interface PersonalQuiz {
 }
 
 export async function preparePersonalQuiz(dataset: PersonalDataset): Promise<PersonalQuiz> {
+  const sourceRows = dataset.version === 2 ? dataset.sourceRows : undefined
   const reviewed = dataset.entries.filter(entry => entry.vocabularyStatus === 'reviewed')
   const groups = dataset.distractorGroups
   const makeCatalog = (entries: typeof reviewed, level: Level, strict: boolean) => {
     const base = buildCatalog(entries, level, strict, groups)
-    return dataset.sourceRows ? extendWithGrammar(base, entries, dataset.entries, dataset.sourceRows, level) : base
+    return sourceRows ? extendWithGrammar(base, entries, dataset.entries, sourceRows, level) : base
   }
   const catalogs = { A1: makeCatalog(reviewed, 'A1', false), A2: makeCatalog(reviewed, 'A2', false) }
   const automaticAvailable = reviewed.length !== dataset.entries.length
@@ -33,19 +35,19 @@ export async function preparePersonalQuiz(dataset: PersonalDataset): Promise<Per
     return catalog
   }
   if (!catalogs.A2.entryCount && !(automaticAvailable && getExpandedCatalog('A2').entryCount)) {
-    throw new Error('The vocabulary cannot generate any safe quiz questions')
+    throw new ImportProblem('no-questions', 'The vocabulary cannot generate any safe quiz questions')
   }
   const answerData = dataset.entries.map(({ id, german, part_of_speech, article, arabic_translations, synonyms,
     levels, quiz, vocabularyStatus }) =>
     [id, german, part_of_speech, article, arabic_translations, synonyms, levels, quiz, vocabularyStatus])
-  const versionedData = dataset.sourceRows ? [answerData, groups, dataset.sourceRows.map(row =>
+  const versionedData = sourceRows ? [answerData, groups, sourceRows.map(row =>
     [row.review_fingerprint, row.verification_status, row.plural_marker, row.gradation_marker, row.derived,
       row.examples?.map(example => [example.german, example.verification_status, Boolean(example.arabic)])])] : [answerData, groups]
   const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(versionedData)))
   const revision = Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('')
   const importedCounts = Object.fromEntries(levels.map(level =>
     [level, dataset.entries.filter(entry => entry.levels.includes(level)).length])) as Record<Level, number>
-  const chapters = dataset.sourceRows && [...new Map(dataset.sourceRows.map(row => {
+  const chapters = sourceRows && [...new Map(sourceRows.map(row => {
     const key: ChapterKey = `${row.level}:${row.chapter_number}`
     return [key, { key, level: row.level, number: row.chapter_number, title: row.chapter_title }] as const
   })).values()].sort((a, b) => a.level.localeCompare(b.level) || a.number - b.number)

@@ -2,6 +2,7 @@ import { articles, automaticExampleApproval, isLevel, levels,
   type ExampleSentence, type Level, type PilotEntry } from './pilot.ts'
 import { readSourceRows, type SourceRow } from './source-data.ts'
 import { readExampleMetadata } from './example-data.ts'
+import { ImportProblem, requireImportFields } from './import-problem.ts'
 
 export const datasetFormat = 'german-quiz-personal'
 export const datasetVersion = 1
@@ -54,7 +55,9 @@ function list(value: unknown, max: number): unknown[] {
 }
 
 function readSource(value: unknown): SourceReference {
-  const { id, level, sourcePdf, chapter, page, chapterTitle, verificationStatus, approvalStatus, reviewMethod } = object(value)
+  const source = object(value)
+  requireImportFields(source, ['id', 'level', 'sourcePdf', 'chapter', 'page', 'verificationStatus'])
+  const { id, level, sourcePdf, chapter, page, chapterTitle, verificationStatus, approvalStatus, reviewMethod } = source
   if (!isLevel(level) || sourcePdf !== level + '.pdf' ||
       !positive(chapter, 999) || !positive(page, 10_000) ||
       typeof id !== 'string' || !/^[a-z0-9-]{1,90}$/u.test(id) ||
@@ -65,7 +68,7 @@ function readSource(value: unknown): SourceReference {
       (reviewMethod != null && reviewMethod !== 'ai_pdf_visual' && reviewMethod !== 'user_approval_after_pdf_match')) {
     throw new Error('Invalid source reference')
   }
-  return { id, level, sourcePdf, chapter: chapter as number, page: page as number, verificationStatus,
+  return { ...source, id, level, sourcePdf, chapter: chapter as number, page: page as number, verificationStatus,
     ...(chapterTitle === undefined ? {} : { chapterTitle: chapterTitle as string }),
     ...(approvalStatus === undefined ? {} : { approvalStatus }),
     ...(reviewMethod === undefined ? {} : { reviewMethod }),
@@ -74,6 +77,7 @@ function readSource(value: unknown): SourceReference {
 
 function readExample(value: unknown, id: string, sources: SourceReference[]): ExampleSentence {
   const example = object(value)
+  requireImportFields(example, ['entryId', 'level', 'german', 'arabic', 'origin', 'verificationStatus'])
   const metadata = readExampleMetadata(example)
   const { entryId, level, german, arabic, origin, verificationStatus, sourcePdf, chapter, page,
     localApproval: approval, arabicOrigin, arabicLocalApproval } = example
@@ -83,8 +87,8 @@ function readExample(value: unknown, id: string, sources: SourceReference[]): Ex
   if (metadata && (metadata.source_type !== (origin === 'source_pdf' ? 'source_pdf' : 'generated') ||
       !sources.some(source => source.id === metadata.source_row_id && source.level === level) ||
       (metadata.source_type === 'source_pdf' && metadata.source_page !== page))) throw new Error('Invalid example source link')
-  const common: Pick<ExampleSentence, 'entryId' | 'level' | 'german' | 'arabic' | 'localApproval'> = {
-    entryId: id, level, german: german as string, arabic: arabic as string | null,
+  const common: Pick<ExampleSentence, 'entryId' | 'level' | 'german' | 'arabic' | 'localApproval'> & RecordValue = {
+    ...example, entryId: id, level, german: german as string, arabic: arabic as string | null,
     ...(approval ? { localApproval: automaticExampleApproval } : {}) }
   if (origin === 'source_pdf') {
     if ((verificationStatus !== 'manually_verified' && verificationStatus !== 'automated_checked') ||
@@ -104,6 +108,8 @@ function readExample(value: unknown, id: string, sources: SourceReference[]): Ex
 
 function readEntry(value: unknown, allowGrammarOnly: boolean): PersonalEntry {
   const row = object(value)
+  requireImportFields(row, ['id', 'german', 'article', 'part_of_speech', 'arabic_translations', 'synonyms',
+    'sources', 'levels', 'examples', 'quiz', 'vocabularyStatus'])
   const { id, german, article, part_of_speech: part, vocabularyStatus } = row
   if (typeof id !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,95}$/u.test(id) || !germanText(german, 300) ||
       typeof part !== 'string' || !parts.includes(part) ||
@@ -125,6 +131,7 @@ function readEntry(value: unknown, allowGrammarOnly: boolean): PersonalEntry {
   const incomplete = levels.filter(level => (level === 'A2' || sourceLevels.includes(level)) &&
     !examples.some(example => (level === 'A2' || example.level === 'A1') && (!bilingual || example.arabic)))
   const quiz = object(row.quiz)
+  requireImportFields(quiz, ['german_to_arabic', 'verb_translation', 'adjective_translation', 'article', 'arabic_to_german_prompts'])
   const { german_to_arabic, verb_translation, adjective_translation } = quiz
   const prompts = list(quiz.arabic_to_german_prompts, 30)
   if (typeof german_to_arabic !== 'boolean' || typeof verb_translation !== 'boolean' ||
@@ -134,23 +141,30 @@ function readEntry(value: unknown, allowGrammarOnly: boolean): PersonalEntry {
       (adjective_translation && (!german_to_arabic || part !== 'adjective')) ||
       !(allowGrammarOnly || german_to_arabic || prompts.length || quiz.article)) throw new Error('Invalid quiz eligibility')
   return {
-    id, german: german as string, article: article as PilotEntry['article'], part_of_speech: part as PilotEntry['part_of_speech'],
+    ...row, id, german: german as string, article: article as PilotEntry['article'], part_of_speech: part as PilotEntry['part_of_speech'],
     arabic_translations: glosses as string[], synonyms: synonyms as string[], levels: sourceLevels,
     examples, incompleteExampleLevels: incomplete, sources, vocabularyStatus,
-    quiz: { german_to_arabic, arabic_to_german_prompts: prompts as string[], article: quiz.article,
+    quiz: { ...quiz, german_to_arabic, arabic_to_german_prompts: prompts as string[], article: quiz.article,
       verb_translation, adjective_translation },
   }
 }
 
 export function validatePersonalDataset(input: unknown): PersonalDataset {
-  const { format, version, entries: raw, distractorGroups: rawGroups, sourceRows: rawSources } = object(input)
-  if (format !== datasetFormat || (version !== datasetVersion && version !== 2)) throw new Error('Unsupported vocabulary format or version')
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+    throw new ImportProblem('schema', 'Unsupported vocabulary format or version')
+  }
+  const record = object(input)
+  const { format, version, entries: raw, distractorGroups: rawGroups, sourceRows: rawSources } = record
+  if (format !== datasetFormat || (version !== datasetVersion && version !== 2)) {
+    throw new ImportProblem('schema', 'Unsupported vocabulary format or version')
+  }
+  requireImportFields(record, version === 2 ? ['entries', 'distractorGroups', 'sourceRows'] : ['entries', 'distractorGroups'])
   const sourceRows = version === 2 ? readSourceRows(rawSources) : undefined
   const exampleArchive = sourceRows?.some(source => source.examples)
-  if (exampleArchive && !sourceRows?.every(source => source.examples)) throw new Error('Incomplete example archive')
+  if (exampleArchive && !sourceRows?.every(source => source.examples)) throw new ImportProblem('source', 'Incomplete example archive')
   const bySource = new Map(sourceRows?.map(source => [source.id, source]))
-  const rows = list(raw, 2500)
-  if (!rows.length) throw new Error('The vocabulary file is empty')
+  if (!Array.isArray(raw) || !raw.length || raw.length > 2500) throw new ImportProblem('record', 'Invalid vocabulary entries')
+  const rows: unknown[] = raw
   const ids = new Set<string>()
   const entries = rows.map((row, index) => {
     try {
@@ -189,20 +203,60 @@ export function validatePersonalDataset(input: unknown): PersonalDataset {
       ids.add(entry.id)
       return entry
     } catch (error) {
-      throw new Error('Invalid vocabulary entry ' + (index + 1), { cause: error })
+      if (error instanceof ImportProblem && error.code === 'missing') {
+        throw new ImportProblem('missing', error.message, error.field, index + 1, { cause: error })
+      }
+      throw new ImportProblem('record', 'Invalid vocabulary entry ' + (index + 1), undefined, index + 1, { cause: error })
     }
   })
-  const distractorGroups = list(rawGroups, 100).map(value => {
-    const group = list(value, 30)
-    if (group.length < 2 || !group.every(word => germanText(word, 300))) throw new Error('Invalid distractor group')
-    return group as string[]
-  })
-  return { format, version, entries, distractorGroups, ...(sourceRows ? { sourceRows } : {}) }
+  let distractorGroups: string[][]
+  try {
+    distractorGroups = list(rawGroups, 100).map(value => {
+      const group = list(value, 30)
+      if (group.length < 2 || !group.every(word => germanText(word, 300))) throw new Error('Invalid distractor group')
+      return group as string[]
+    })
+  } catch (error) {
+    throw new ImportProblem('record', 'Invalid distractor groups', undefined, undefined, { cause: error })
+  }
+  return { ...record, format, version, entries, distractorGroups, ...(sourceRows ? { sourceRows } : {}) }
 }
 
-export async function readPersonalFile(file: Pick<File, 'size' | 'text'>) {
-  if (!file.size || file.size > maximumDatasetBytes) throw new Error('Invalid vocabulary file size')
-  return validatePersonalDataset(JSON.parse((await file.text()).replace(/^\uFEFF/u, '')))
+export async function readPersonalFile(file: Pick<File, 'size' | 'text'> & Partial<Pick<File, 'arrayBuffer'>>) {
+  if (!file.size) throw new ImportProblem('empty', 'Empty vocabulary file')
+  if (file.size > maximumDatasetBytes) throw new ImportProblem('size', 'Invalid vocabulary file size')
+  let content: string | ArrayBuffer
+  try {
+    if (typeof file.arrayBuffer === 'function') content = await file.arrayBuffer()
+    else if (typeof file.text === 'function') content = await file.text()
+    else if (file instanceof Blob) {
+      content = await new Promise<ArrayBuffer>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result as ArrayBuffer)
+        reader.onerror = () => reject(reader.error)
+        reader.onabort = () => reject(reader.error)
+        reader.readAsArrayBuffer(file)
+      })
+    } else throw new Error('No file reader is available')
+  } catch (error) {
+    throw new ImportProblem('read', 'Cannot read file', undefined, undefined, { cause: error })
+  }
+  if (typeof content !== 'string') {
+    const [first, second] = new Uint8Array(content, 0, Math.min(content.byteLength, 2))
+    const encoding = first === 0xff && second === 0xfe ? 'utf-16le' : first === 0xfe && second === 0xff ? 'utf-16be' : 'utf-8'
+    try {
+      content = new TextDecoder(encoding, { fatal: true }).decode(content)
+    } catch (error) {
+      throw new ImportProblem('encoding', 'Invalid text encoding', undefined, undefined, { cause: error })
+    }
+  }
+  let input: unknown
+  try {
+    input = JSON.parse(content.replace(/^\uFEFF/u, ''))
+  } catch (error) {
+    throw new ImportProblem('syntax', 'Invalid JSON syntax', undefined, undefined, { cause: error })
+  }
+  return validatePersonalDataset(input)
 }
 
 export function serializePersonalDataset(dataset: PersonalDataset) {

@@ -1,5 +1,6 @@
 import { isLevel, type Level } from './pilot.ts'
 import { readSourceExample, type SourceExample } from './example-data.ts'
+import { ImportProblem, requireImportFields } from './import-problem.ts'
 
 export const sourceParts = ['noun', 'verb', 'adjective', 'adverb'] as const
 export type SourcePart = typeof sourceParts[number]
@@ -73,10 +74,15 @@ function checkedDerived(input: unknown): DerivedField | null {
 }
 
 export function readSourceRows(input: unknown): SourceRow[] {
-  if (!Array.isArray(input) || !input.length || input.length > 2500) throw new Error('Invalid source inventory')
+  if (!Array.isArray(input) || !input.length || input.length > 2500) throw new ImportProblem('source', 'Invalid source inventory')
   const ids = new Set<string>()
-  return input.map((value, index) => {
+  function readRow(value: unknown, index: number): SourceRow {
     const row = object(value)
+    requireImportFields(row, ['id', 'level', 'part_of_speech', 'chapter_number', 'chapter_title', 'source_pdf',
+      'source_page', 'source_row', 'source_bbox', 'review_fingerprint', 'combined_id', 'verification_status',
+      'german', 'raw_example_band', 'arabic_translations', 'synonyms', 'antonyms', 'raw_arabic_glyph_lines',
+      'raw_cells', 'arabic_logical_lines', 'extraction_flags', 'validation_issues', 'plural_marker',
+      'gradation_marker', 'derived', ...sourceFields])
     const part = row.part_of_speech as SourcePart
     if (!isLevel(row.level) || !sourceParts.includes(part) || !positive(row.chapter_number, 12) ||
         !positive(row.source_page, row.level === 'A1' ? 62 : 50) || !positive(row.source_row, 99) ||
@@ -142,5 +148,16 @@ export function readSourceRows(input: unknown): SourceRow[] {
       throw new Error('Source example archive does not match the printed row')
     }
     return { ...row, examples } as unknown as SourceRow
+  }
+  return input.map((value, index) => {
+    try {
+      return readRow(value, index)
+    } catch (error) {
+      if (error instanceof ImportProblem && error.code === 'missing') {
+        throw new ImportProblem('missing', error.message, error.field, index + 1, { cause: error })
+      }
+      throw new ImportProblem('source', 'Invalid source row ' + (index + 1) + ' or example archive',
+        undefined, index + 1, { cause: error })
+    }
   })
 }

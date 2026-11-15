@@ -63,7 +63,7 @@ try {
   await page.goto(appUrl)
   await page.getByRole('heading', { name: 'ابدأ باستيراد مفرداتك' }).waitFor()
   await page.locator('input[type=file]').setInputFiles({ name: 'broken.json', mimeType: 'application/json', buffer: Buffer.from('{') })
-  await page.getByRole('alert').waitFor()
+  await page.getByRole('alert').filter({ hasText: 'بنية JSON غير صالحة' }).waitFor()
   if (legacyFile) {
     await page.locator('input[type=file]').setInputFiles({ name: 'legacy.json', mimeType: 'application/json', buffer: legacyFile })
     await page.getByRole('heading', { name: vocabularySection }).waitFor()
@@ -107,8 +107,32 @@ try {
   assert.notEqual(expandedA1, expandedA2)
   await select.nth(1).selectOption('50')
   await page.locator('input[type=file]').setInputFiles({ name: 'broken.json', mimeType: 'application/json', buffer: Buffer.from('[]') })
-  await page.getByRole('alert').waitFor()
+  await page.getByRole('alert').filter({ hasText: 'إصداره غير مدعوم' }).waitFor()
   assert.equal(await safeCount.textContent(), expandedA2)
+
+  for (const failure of ['quota', 'abort']) {
+    await page.evaluate(mode => {
+      const put = IDBObjectStore.prototype.put
+      IDBObjectStore.prototype.put = function (value, key) {
+        if (key === 'active') {
+          IDBObjectStore.prototype.put = put
+          if (mode === 'quota') throw new DOMException('Test quota', 'QuotaExceededError')
+          const request = put.call(this, value, key)
+          this.transaction.abort()
+          return request
+        }
+        return put.call(this, value, key)
+      }
+    }, failure)
+    const replacement = Buffer.from(JSON.stringify({ ...personal, replacementMarker: true }))
+    await page.locator('input[type=file]').setInputFiles({ name: fixtureName, mimeType: 'application/json', buffer: replacement })
+    await page.getByRole('alert').filter({
+      hasText: failure === 'quota' ? 'مساحة التخزين في المتصفح غير كافية' : 'تعذّر حفظ الملف في المتصفح',
+    }).waitFor()
+    await page.reload()
+    await page.getByRole('heading', { name: vocabularySection }).waitFor()
+    assert.equal(await safeCount.textContent(), expandedA2)
+  }
 
   const downloadStarted = page.waitForEvent('download')
   await page.getByRole('button', { name: 'تنزيل ملف المفردات' }).click()

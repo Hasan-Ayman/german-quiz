@@ -3,8 +3,13 @@ const shellUrls = new Set(shellFiles.map(file => new URL(file, shellRoot).href))
 const shellIndex = new URL('index.html', shellRoot).href
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(shellCache).then(cache =>
-    cache.addAll([...shellUrls].map(url => new Request(url, { cache: 'reload' })))))
+  event.waitUntil((async () => {
+    // The first published shell could only import v1 files.
+    const upgradesV1Importer = await caches.has(cachePrefix + '5d29cf465bf044c1')
+    const cache = await caches.open(shellCache)
+    await cache.addAll([...shellUrls].map(url => new Request(url, { cache: 'reload' })))
+    if (upgradesV1Importer) await self.skipWaiting()
+  })())
 })
 
 self.addEventListener('message', event => {

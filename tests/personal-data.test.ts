@@ -3,6 +3,7 @@ import { readPersonalFile, serializePersonalDataset, validatePersonalDataset } f
 import { preparePersonalQuiz, selectedPersonalCatalog } from '../src/personal-quiz'
 import { makeQuiz } from '../src/quiz'
 import { fixtureDataset } from './fixtures'
+import { importMessage } from '../src/import-problem'
 
 it('round-trips the complete versioned vocabulary and metadata', async () => {
   const text = serializePersonalDataset(fixtureDataset)
@@ -17,6 +18,42 @@ it('rejects malformed, oversized and incompatible files', async () => {
   await expect(readPersonalFile({ size: 50_000_000, text: async () => {
     throw new Error('Should never read an oversized file')
   } })).rejects.toThrow(/size/)
+})
+
+it('distinguishes file failures from schema, missing fields and invalid records', async () => {
+  const cases = [
+    ['{bad', 'syntax', undefined, undefined],
+    ['{"format":"german-quiz-personal","version":8}', 'schema', undefined, undefined],
+    [JSON.stringify({ ...fixtureDataset, entries: undefined }), 'missing', 'entries', undefined],
+    [JSON.stringify({ ...fixtureDataset, entries: [{ ...fixtureDataset.entries[0], german: undefined }] }),
+      'missing', 'german', 1],
+    [JSON.stringify({ ...fixtureDataset, entries: [{ ...fixtureDataset.entries[0], part_of_speech: 'private-value' }] }),
+      'record', undefined, 1],
+  ] as const
+  for (const [text, code, field, row] of cases) {
+    const failed = readPersonalFile(new File([text], 'test.json'))
+    await expect(failed).rejects.toMatchObject({ code, field, row })
+    expect(await failed.catch(importMessage)).not.toContain('private-value')
+  }
+  await expect(readPersonalFile({ size: 1, text: async () => { throw new Error('private path') } }))
+    .rejects.toMatchObject({ code: 'read' })
+  await expect(readPersonalFile(new File([Uint8Array.of(0x80)], 'test.json')))
+    .rejects.toMatchObject({ code: 'encoding' })
+})
+
+it('reads UTF-16 transfer files and preserves fields through export and re-import', async () => {
+  const input = {
+    ...fixtureDataset, transferMetadata: { batch: 2 },
+    entries: fixtureDataset.entries.map(row => ({
+      ...row, entryNotes: ['test'], quiz: { ...row.quiz, setting: true },
+      sources: row.sources.map(source => ({ ...source, sourceNote: 'test' })),
+      examples: row.examples.map(example => ({ ...example, exampleNote: 'test' })),
+    })),
+  }
+  const bytes = Buffer.from('\uFEFF' + JSON.stringify(input), 'utf16le')
+  const parsed = await readPersonalFile(new File([new Uint8Array(bytes)], 'test.json'))
+  expect(parsed).toEqual(input)
+  expect(validatePersonalDataset(JSON.parse(serializePersonalDataset(parsed)))).toEqual(input)
 })
 
 it('rejects duplicate IDs, invalid level metadata, impossible eligibility and unapproved examples', () => {

@@ -1,6 +1,7 @@
 import { useRef, useState, type ChangeEvent } from 'react'
 import { serializePersonalDataset, type PersonalDataset } from './personal-data'
 import type { PersonalQuiz } from './personal-quiz'
+import { importMessage } from './import-problem.ts'
 
 export function VocabularyFile({ bank, onImport, storageFailed }: {
   bank: PersonalQuiz | null
@@ -9,7 +10,7 @@ export function VocabularyFile({ bank, onImport, storageFailed }: {
 }) {
   const input = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
-  const [message, setMessage] = useState<'loaded' | 'invalid' | null>(null)
+  const [failure, setFailure] = useState<string | null>(null)
   const format = new Intl.NumberFormat('ar-u-nu-arab')
 
   async function choose(event: ChangeEvent<HTMLInputElement>) {
@@ -17,12 +18,11 @@ export function VocabularyFile({ bank, onImport, storageFailed }: {
     event.currentTarget.value = ''
     if (!file) return
     setBusy(true)
-    setMessage(null)
+    setFailure(null)
     try {
       await onImport(file)
-      setMessage('loaded')
-    } catch {
-      setMessage('invalid')
+    } catch (error) {
+      setFailure(importMessage(error))
     } finally {
       setBusy(false)
     }
@@ -50,8 +50,7 @@ export function VocabularyFile({ bank, onImport, storageFailed }: {
           onClick={() => downloadDataset(bank.dataset)}>تنزيل ملف المفردات</button>}
       </div>
       {storageFailed && <p role="alert">تعذّر فتح مساحة التخزين على هذا الجهاز. تحقّق من إعدادات المتصفح وحاول مجددًا.</p>}
-      {message === 'invalid' && <p role="alert">تعذّر استيراد الملف. اختر ملف مفردات صالحًا يمكن حفظه على هذا الجهاز.</p>}
-      {message === 'loaded' && <p role="status">تم حفظ المفردات في هذا المتصفح.</p>}
+      {failure && <p role="alert">{failure}{bank && ' مفرداتك الحالية ما زالت محفوظة.'}</p>}
     </section>
   )
 }
