@@ -3,6 +3,7 @@ import type { PersonalDataset } from './personal-data'
 const databaseName = 'german-quiz-personal'
 const storeName = 'vocabulary'
 const datasetKey = 'active'
+const legacyBackupKey = 'backup-v1'
 
 function openDatabase(factory: IDBFactory): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -34,7 +35,16 @@ export async function savePersonalDataset(dataset: PersonalDataset, factory = in
       const transaction = database.transaction(storeName, 'readwrite')
       transaction.oncomplete = () => resolve()
       transaction.onabort = () => reject(transaction.error)
-      transaction.objectStore(storeName).put(dataset, datasetKey)
+      const store = transaction.objectStore(storeName)
+      if (dataset.version === 2) {
+        const previous = store.get(datasetKey)
+        previous.onsuccess = () => {
+          if (previous.result?.version === 1) store.put(previous.result, legacyBackupKey)
+          store.put(dataset, datasetKey)
+        }
+      } else {
+        store.put(dataset, datasetKey)
+      }
     })
   } finally {
     database.close()

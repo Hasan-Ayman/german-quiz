@@ -25,15 +25,15 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-      - run: npm ci
       - name: Require a content-free checkout
         run: |
-          for path in data source-pdfs reports; do
+          for path in data source-pdfs reports private backups tmp public dist; do
             test ! -e "$path"
           done
-          if git ls-files | grep -Ei '\.pdf$|personal-vocabulary.*\.json$'; then
+          if git ls-files | grep -Ei '\.pdf$|(personal-vocabulary|complete-private|private-vocabulary|vocabulary-backup).*\.json$|\.backup\.json$'; then
             exit 1
           fi
+      - run: npm ci
       - run: npm test
       - run: npm run build
       - uses: actions/configure-pages@v5

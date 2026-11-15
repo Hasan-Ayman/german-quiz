@@ -428,3 +428,57 @@ progress::-moz-progress-bar { background: var(--green); border-radius: 50px; }
 .app-update {
   margin-block-start: .75rem;
 }
+.quiz-filters {
+  display: grid;
+  gap: .5rem;
+  margin-block: 1rem;
+}
+
+.quiz-filters details {
+  border: 1px solid currentColor;
+  border-radius: .65rem;
+  padding: .55rem .8rem;
+}
+
+.quiz-filters summary, .quiz-filters button, .quiz-filters input {
+  cursor: pointer;
+}
+
+.quiz-filters button {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  text-decoration: underline;
+  border: 0;
+  padding: .35rem;
+}
+
+.quiz-filters fieldset {
+  margin: .5rem 0;
+  border: 0;
+  padding: 0;
+}
+
+.filter-choice {
+  display: flex;
+  gap: .4rem;
+  align-items: baseline;
+  min-height: 2rem;
+}
+.vocabulary-search {
+  display: grid;
+  gap: .4rem;
+  margin-block: .5rem;
+}
+
+.vocabulary-search input {
+  width: 100%;
+  min-height: 2.5rem;
+  font: inherit;
+  padding: .35rem .6rem;
+}
+
+.extra-examples summary {
+  cursor: pointer;
+  margin-block: .5rem;
+}

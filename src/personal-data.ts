@@ -1,5 +1,7 @@
 import { articles, automaticExampleApproval, isLevel, levels,
   type ExampleSentence, type Level, type PilotEntry } from './pilot.ts'
+import { readSourceRows, type SourceRow } from './source-data.ts'
+import { readExampleMetadata } from './example-data.ts'
 
 export const datasetFormat = 'german-quiz-personal'
 export const datasetVersion = 1
@@ -24,9 +26,10 @@ export interface PersonalEntry extends PilotEntry {
 
 export interface PersonalDataset {
   format: typeof datasetFormat
-  version: typeof datasetVersion
+  version: 1 | 2
   entries: PersonalEntry[]
   distractorGroups: string[][]
+  sourceRows?: SourceRow[]
 }
 
 type RecordValue = Record<string, unknown>
@@ -71,11 +74,15 @@ function readSource(value: unknown): SourceReference {
 
 function readExample(value: unknown, id: string, sources: SourceReference[]): ExampleSentence {
   const example = object(value)
+  const metadata = readExampleMetadata(example)
   const { entryId, level, german, arabic, origin, verificationStatus, sourcePdf, chapter, page,
     localApproval: approval, arabicOrigin, arabicLocalApproval } = example
   if (entryId !== id || !isLevel(level) || !sources.some(source => source.level === level) ||
       !germanText(german, 2000) || !(arabic === null || arabicText(arabic, 3000)) || !localApproval(approval) ||
       (approval && !arabic)) throw new Error('Invalid example')
+  if (metadata && (metadata.source_type !== (origin === 'source_pdf' ? 'source_pdf' : 'generated') ||
+      !sources.some(source => source.id === metadata.source_row_id && source.level === level) ||
+      (metadata.source_type === 'source_pdf' && metadata.source_page !== page))) throw new Error('Invalid example source link')
   const common: Pick<ExampleSentence, 'entryId' | 'level' | 'german' | 'arabic' | 'localApproval'> = {
     entryId: id, level, german: german as string, arabic: arabic as string | null,
     ...(approval ? { localApproval: automaticExampleApproval } : {}) }
@@ -85,17 +92,17 @@ function readExample(value: unknown, id: string, sources: SourceReference[]): Ex
         !localApproval(arabicLocalApproval) || (arabicOrigin !== undefined && (arabicOrigin !== 'authored' || !arabic)) ||
         (arabicLocalApproval && arabicOrigin !== 'authored') ||
         (approval && verificationStatus !== 'automated_checked')) throw new Error('Invalid PDF example provenance')
-    return { ...common, origin, verificationStatus, sourcePdf: sourcePdf as string, chapter: chapter as number,
+    return { ...common, ...metadata, origin, verificationStatus, sourcePdf: sourcePdf as string, chapter: chapter as number,
       page: page as number, ...(arabicOrigin ? { arabicOrigin } : {}),
       ...(arabicLocalApproval ? { arabicLocalApproval: automaticExampleApproval } : {}) }
   }
   if (origin !== 'authored' ||
       (verificationStatus !== 'reviewed' && verificationStatus !== automaticExampleApproval) || !arabic ||
       Boolean(approval) !== (verificationStatus === automaticExampleApproval)) throw new Error('Invalid authored example approval')
-  return { ...common, origin, verificationStatus }
+  return { ...common, ...metadata, origin, verificationStatus }
 }
 
-function readEntry(value: unknown): PersonalEntry {
+function readEntry(value: unknown, allowGrammarOnly: boolean): PersonalEntry {
   const row = object(value)
   const { id, german, article, part_of_speech: part, vocabularyStatus } = row
   if (typeof id !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,95}$/u.test(id) || !germanText(german, 300) ||
@@ -114,8 +121,9 @@ function readEntry(value: unknown): PersonalEntry {
   if (!Array.isArray(row.levels) || row.levels.length !== sourceLevels.length ||
       sourceLevels.some(level => !(row.levels as unknown[]).includes(level))) throw new Error('Invalid source levels')
   const examples = list(row.examples, 30).map(example => readExample(example, id, sources))
+  const bilingual = examples.some(example => example.source_type)
   const incomplete = levels.filter(level => (level === 'A2' || sourceLevels.includes(level)) &&
-    !examples.some(example => level === 'A2' || example.level === 'A1'))
+    !examples.some(example => (level === 'A2' || example.level === 'A1') && (!bilingual || example.arabic)))
   const quiz = object(row.quiz)
   const { german_to_arabic, verb_translation, adjective_translation } = quiz
   const prompts = list(quiz.arabic_to_german_prompts, 30)
@@ -124,7 +132,7 @@ function readEntry(value: unknown): PersonalEntry {
       !prompts.every(prompt => glosses.includes(prompt)) ||
       (quiz.article && !article) || (verb_translation && (!german_to_arabic || part !== 'verb')) ||
       (adjective_translation && (!german_to_arabic || part !== 'adjective')) ||
-      !(german_to_arabic || prompts.length || quiz.article)) throw new Error('Invalid quiz eligibility')
+      !(allowGrammarOnly || german_to_arabic || prompts.length || quiz.article)) throw new Error('Invalid quiz eligibility')
   return {
     id, german: german as string, article: article as PilotEntry['article'], part_of_speech: part as PilotEntry['part_of_speech'],
     arabic_translations: glosses as string[], synonyms: synonyms as string[], levels: sourceLevels,
@@ -135,15 +143,49 @@ function readEntry(value: unknown): PersonalEntry {
 }
 
 export function validatePersonalDataset(input: unknown): PersonalDataset {
-  const { format, version, entries: raw, distractorGroups: rawGroups } = object(input)
-  if (format !== datasetFormat || version !== datasetVersion) throw new Error('Unsupported vocabulary format or version')
+  const { format, version, entries: raw, distractorGroups: rawGroups, sourceRows: rawSources } = object(input)
+  if (format !== datasetFormat || (version !== datasetVersion && version !== 2)) throw new Error('Unsupported vocabulary format or version')
+  const sourceRows = version === 2 ? readSourceRows(rawSources) : undefined
+  const exampleArchive = sourceRows?.some(source => source.examples)
+  if (exampleArchive && !sourceRows?.every(source => source.examples)) throw new Error('Incomplete example archive')
+  const bySource = new Map(sourceRows?.map(source => [source.id, source]))
   const rows = list(raw, 2500)
   if (!rows.length) throw new Error('The vocabulary file is empty')
   const ids = new Set<string>()
   const entries = rows.map((row, index) => {
     try {
-      const entry = readEntry(row)
+      const entry = readEntry(row, version === 2)
       if (ids.has(entry.id)) throw new Error('Duplicate entry ID')
+      if (sourceRows) {
+        for (const ref of entry.sources) {
+          const source = bySource.get(ref.id)
+          if (!source || source.combined_id !== entry.id || source.verification_status === 'needs_manual_review' ||
+              source.verification_status !== ref.verificationStatus || source.level !== ref.level ||
+              source.source_pdf !== ref.sourcePdf || source.chapter_number !== ref.chapter || source.source_page !== ref.page ||
+              source.german !== entry.german || source.part_of_speech !== entry.part_of_speech || source.article !== entry.article ||
+              [...(source.arabic_translations ?? [])].sort().join('\n') !== [...entry.arabic_translations].sort().join('\n') ||
+              [...(source.synonyms ?? [])].sort().join('\n') !== [...entry.synonyms].sort().join('\n')) {
+            throw new Error('Entry differs from its source row')
+          }
+        }
+        if (exampleArchive) {
+          const archived = entry.sources.flatMap(ref => bySource.get(ref.id)!.examples ?? [])
+          const signature = (example: typeof archived[number] | ExampleSentence) =>
+            JSON.stringify([example.german, example.arabic, example.level, example.source_type, example.grammar_focus,
+              example.verification_status, example.source_page, example.source_row_id, example.example_review?.evidence,
+              example.example_review?.method])
+          if (JSON.stringify(archived.map(signature).sort()) !== JSON.stringify(entry.examples.map(signature).sort()) ||
+              entry.examples.some(example => example.origin === 'source_pdf' && example.verificationStatus !==
+                (bySource.get(example.source_row_id ?? '')?.verification_status === 'manually_verified'
+                  ? 'manually_verified' : 'automated_checked'))) throw new Error('Examples differ from the reviewed archive')
+        } else if (entry.examples.some(example => example.origin !== 'source_pdf' || example.arabic !== null ||
+          example.localApproval || example.arabicOrigin || example.arabicLocalApproval || !entry.sources.some(ref => {
+          const row = bySource.get(ref.id)!
+          return row.level === example.level && row.source_page === example.page &&
+            row.chapter_number === example.chapter && row.example_sentence === example.german &&
+            example.verificationStatus === (row.verification_status === 'manually_verified' ? 'manually_verified' : 'automated_checked')
+        }))) throw new Error('Example differs from its source row')
+      }
       ids.add(entry.id)
       return entry
     } catch (error) {
@@ -155,7 +197,7 @@ export function validatePersonalDataset(input: unknown): PersonalDataset {
     if (group.length < 2 || !group.every(word => germanText(word, 300))) throw new Error('Invalid distractor group')
     return group as string[]
   })
-  return { format, version, entries, distractorGroups }
+  return { format, version, entries, distractorGroups, ...(sourceRows ? { sourceRows } : {}) }
 }
 
 export async function readPersonalFile(file: Pick<File, 'size' | 'text'>) {

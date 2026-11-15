@@ -22,7 +22,7 @@ The quiz skips translation facts without three distinct, compatible distractors.
 
 The setup offers 10, 20, 30, or 50 questions and saves both the question count and level on the device. A1 uses entries with an A1 source. A2 combines both levels and counts shared entries once. If the verified pilot has fewer eligible entries than requested, the quiz shows the actual round length.
 
-After answering, the quiz displays the preferred approved example for the selected level when the file contains one. Reviewed and automatically validated vocabulary remain separate choices.
+The v2 transfer file, `german-quiz-complete-private-v2.json`, adds chapter filters, grammar question types, a searchable vocabulary view, and bilingual examples. After answering, the quiz displays the approved German sentence and Arabic translation available for the selected level. The older v1 transfer format remains supported. Reviewed and automatically validated vocabulary remain separate choices.
 
 ## Install on mobile or Windows
 

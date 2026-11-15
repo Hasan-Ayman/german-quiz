@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
 import { Icon } from './icons'
 import { readPersonalFile, validatePersonalDataset } from './personal-data'
-import { preparePersonalQuiz, selectedPersonalCatalog, type PersonalQuiz } from './personal-quiz'
+import { factType, preparePersonalQuiz, selectedPersonalCatalog, type PersonalQuiz } from './personal-quiz'
 import { loadPersonalDataset, savePersonalDataset } from './personal-storage'
 import { useAppUpdate } from './pwa'
 import { VocabularyFile } from './VocabularyFile'
-import { isLevel, isReliability, levels, preferredExample, type ExampleSentence, type Level, type PilotEntry } from './pilot'
+import { QuizFilters } from './QuizFilters'
+import { grammarTypes, isGrammarMode } from './question-types'
+import { feedbackExamples, isLevel, isReliability, levels, type ExampleSentence, type Level, type PilotEntry } from './pilot'
 import {
-  answer, buildCatalog, incorrectAnswers, isCorrect, isQuestionCount, makeQuiz, modes, newAttempt,
+  answer, incorrectAnswers, isCorrect, isQuestionCount, makeQuiz, modes, newAttempt,
   nextQuestion, questionCounts, retryQuiz, type Attempt, type Mode, type Text,
 } from './quiz'
 import { loadAttempt, loadQuizSettings, loadTheme, readLocal, saveAttempt, writeLocal, type QuizSettings } from './storage'
@@ -24,11 +26,18 @@ const modeInfo = {
   adjective: { name: 'ترجمة الصفات', instruction: 'اختر معنى الصفة بالعربية', icon: 'adjective', tone: 'rose' },
 } as const
 
-type Screen = 'home' | 'quiz' | 'results' | 'review'
+function modeDetails(mode: Mode) {
+  if (!isGrammarMode(mode)) return modeInfo[mode]
+  const [part, name, instruction] = grammarTypes[mode]
+  const style = part === 'verb' ? modeInfo.verb : part === 'adjective' ? modeInfo.adjective : modeInfo.article
+  return { ...style, name, instruction }
+}
+
+type Screen = 'home' | 'quiz' | 'results' | 'review' | 'vocabulary'
 
 function readScreen(): Screen {
   const name = window.location.hash.slice(2)
-  return name === 'quiz' || name === 'results' || name === 'review' ? name : 'home'
+  return name === 'quiz' || name === 'results' || name === 'review' || name === 'vocabulary' ? name : 'home'
 }
 
 function subscribeScreen(callback: () => void) {
@@ -45,7 +54,7 @@ export function LanguageText({ text, lang }: Text) {
 }
 
 function ModeLabel({ mode }: { mode: Mode }) {
-  const info = modeInfo[mode]
+  const info = modeDetails(mode)
   return <span className={'mode-badge ' + info.tone}><Icon name={info.icon} size={16} />{info.name}</span>
 }
 
@@ -71,8 +80,25 @@ function ExampleFeedback({ example }: { example: ExampleSentence }) {
       {example.origin === 'source_pdf' && example.arabicOrigin === 'authored' &&
         <small>ترجمة عربية مضافة{example.arabicLocalApproval && ' · معتمدة آليًا للاستخدام المحلي'}</small>}
       {example.arabic && <p lang="ar" dir="rtl">{example.arabic}</p>}
+      {example.verification_status === 'needs_review' && <small>الترجمة قيد المراجعة</small>}
     </section>
   )
+}
+
+function EntryExamples({ entry, level, preferred, compact = false }: {
+  entry: PilotEntry; level: Level; preferred?: string; compact?: boolean
+}) {
+  const examples = feedbackExamples(entry.examples, level)
+  const used = examples.findIndex(example => example.german === preferred)
+  if (used > 0) examples.unshift(...examples.splice(used, 1))
+  const count = compact && !examples.some(example => example.source_type) ? 1 : 2
+  return <>
+    {examples.slice(0, count).map(example => <ExampleFeedback key={example.german} example={example} />)}
+    {examples.length > count && <details className="extra-examples">
+      <summary>أمثلة إضافية</summary>
+      {examples.slice(count).map(example => <ExampleFeedback key={example.german} example={example} />)}
+    </details>}
+  </>
 }
 
 function RoundLimit({ requested, actual }: { requested: number; actual: number }) {
@@ -90,9 +116,12 @@ function Home({ bank, attempt, settings, updateSettings, start }: {
   updateSettings: (settings: QuizSettings) => void
   start: () => void
 }) {
-  const eligibleCount = selectedPersonalCatalog(bank, settings).entryCount
+  const catalog = selectedPersonalCatalog(bank, settings)
+  const eligibleCount = catalog.entryCount
   const expanded = bank.automaticAvailable
   const availableCount = Math.min(settings.count, eligibleCount)
+  const availableTypes = bank.chapters ? new Set([...selectedPersonalCatalog(bank, { ...settings, types: undefined })
+    .facts.values()].map(factType)) : undefined
   return (
     <>
       <section className="hero" aria-labelledby="home-title">
@@ -105,7 +134,8 @@ function Home({ bank, attempt, settings, updateSettings, start }: {
               مستوى المفردات
               <select value={settings.level} aria-describedby="pilot-availability" onChange={event => {
                 const level = event.target.value
-                if (isLevel(level)) updateSettings({ ...settings, level })
+                if (isLevel(level)) updateSettings({ ...settings, level,
+                  chapters: level === 'A1' ? settings.chapters?.filter(key => key.startsWith('A1:')) : settings.chapters })
               }}>
                 {levels.map(level => <option key={level} value={level}>{level}</option>)}
               </select>
@@ -130,6 +160,7 @@ function Home({ bank, attempt, settings, updateSettings, start }: {
               </select>
             </label>}
           </div>
+          {availableTypes && <QuizFilters bank={bank} settings={settings} update={updateSettings} available={availableTypes} />}
           {expanded && <p className="notice" id="reliability-description">
             مجموعة الفحص الآلي مخصّصة للاختبار المحلي. لم يراجع شخصٌ جميع مفرداتها واحدةً تلو الأخرى.
           </p>}
@@ -149,6 +180,7 @@ function Home({ bank, attempt, settings, updateSettings, start }: {
                 {attempt.finished ? 'عرض آخر نتيجة' : 'متابعة الاختبار'}
               </a>
             )}
+            <a className="button secondary" href="#/vocabulary">مراجعة المفردات</a>
           </div>
         </div>
         <div className="hero-art" aria-hidden="true">
@@ -167,11 +199,11 @@ function Home({ bank, attempt, settings, updateSettings, start }: {
         </div>
         <div className="hero-meta">
           <span><Icon name="list" size={17} /> أسئلة الجولة <strong>{number(availableCount)}</strong></span>
-          <span><Icon name="shuffle" size={17} /> {number(modes.length)} أنواع من الأسئلة</span>
+          <span><Icon name="shuffle" size={17} /> {number(availableTypes ? new Set([...catalog.facts.values()].map(factType)).size : modes.length)} أنواع من الأسئلة</span>
           <span><Icon name="retry" size={17} /> إعادة المحاولة للأخطاء</span>
         </div>
       </section>
-      <section className="modes" aria-labelledby="modes-title">
+      {!bank.chapters && <section className="modes" aria-labelledby="modes-title">
         <div className="section-heading">
           <h2 id="modes-title">ماذا ستتدرّب عليه؟</h2>
           <p>مزيج مختلف من الأسئلة في كل جولة.</p>
@@ -187,7 +219,7 @@ function Home({ bank, attempt, settings, updateSettings, start }: {
             )
           })}
         </div>
-      </section>
+      </section>}
     </>
   )
 }
@@ -200,7 +232,6 @@ export function QuizPanel({ attempt, select, advance }: {
   const current = attempt.questions[attempt.index]
   const total = attempt.questions.length
   const selected = attempt.answers[attempt.index]
-  const example = selected && preferredExample(current.entry.examples, attempt.level)
   const heading = useRef<HTMLHeadingElement>(null)
   useEffect(() => {
     heading.current?.focus({ preventScroll: true })
@@ -221,8 +252,9 @@ export function QuizPanel({ attempt, select, advance }: {
       <article className="panel question-panel">
         <div className="question-header">
           <ModeLabel mode={current.mode} />
-          <p className="question-instruction">{modeInfo[current.mode].instruction}</p>
+          <p className="question-instruction">{modeDetails(current.mode).instruction}</p>
           <h1 tabIndex={-1} ref={heading}><LanguageText {...current.prompt} /></h1>
+          {current.hint && <p className="question-instruction">المعنى المقصود: <LanguageText {...current.hint} /></p>}
         </div>
         <div className="choices" role="group" aria-label="الخيارات">
           {current.choices.map((choice, index) => {
@@ -248,7 +280,7 @@ export function QuizPanel({ attempt, select, advance }: {
                 {isCorrect(current, selected) ? 'إجابة صحيحة!' : 'إجابة غير صحيحة'}
               </strong>
               <VocabularyDetail entry={current.entry} />
-              {example && <ExampleFeedback example={example} />}
+              <EntryExamples entry={current.entry} level={attempt.level} preferred={current.exampleGerman} compact />
             </div>
             <button className="button primary next-button" type="button" onClick={advance}>
               {attempt.index + 1 === total ? 'عرض النتيجة' : 'السؤال التالي'} <Icon name="left" size={18} />
@@ -277,7 +309,10 @@ function MistakeList({ attempt, detailed }: { attempt: Attempt; detailed: boolea
               <div><dt>إجابتك</dt><dd className="wrong-text"><LanguageText {...selected} /></dd></div>
               <div><dt>الإجابة الصحيحة</dt><dd className="correct-text"><LanguageText {...correct} /></dd></div>
             </dl>
-            {detailed && <VocabularyDetail entry={question.entry} />}
+            {detailed && <>
+              <VocabularyDetail entry={question.entry} />
+              <EntryExamples entry={question.entry} level={attempt.level} preferred={question.exampleGerman} />
+            </>}
           </li>
         )
       })}
@@ -352,14 +387,48 @@ function Review({ attempt, retry }: { attempt: Attempt; retry: () => void }) {
   )
 }
 
+function VocabularyReview({ bank, settings }: { bank: PersonalQuiz; settings: QuizSettings }) {
+  const [query, setQuery] = useState('')
+  const [page, setPage] = useState(0)
+  const entries = bank.dataset.entries.filter(entry =>
+    (settings.level === 'A2' || entry.levels.includes('A1')) &&
+    (settings.reliability === 'with-automatic' || entry.vocabularyStatus === 'reviewed') &&
+    [entry.german, ...entry.arabic_translations].some(text =>
+      text.normalize('NFC').toLocaleLowerCase().includes(query.trim().normalize('NFC').toLocaleLowerCase())))
+  const pageSize = 12
+  return <section className="workspace review-page" aria-labelledby="vocabulary-review-title">
+    <div className="page-top"><a className="back-link" href="#/"><Icon name="right" size={18} /> الرئيسية</a></div>
+    <div className="panel review-heading">
+      <div>
+        <h1 id="vocabulary-review-title" tabIndex={-1}>مراجعة المفردات</h1>
+        <label className="vocabulary-search">بحث بالعربية أو الألمانية
+          <input type="search" dir="auto" value={query} onChange={event => { setQuery(event.target.value); setPage(0) }} />
+        </label>
+      </div>
+    </div>
+    {entries.length === 0 && <p role="status">لا توجد مفردات تطابق البحث.</p>}
+    <ul className="mistakes">
+      {entries.slice(page * pageSize, (page + 1) * pageSize).map(entry => <li className="mistake" key={entry.id}>
+        <VocabularyDetail entry={entry} />
+        <EntryExamples entry={entry} level={settings.level} />
+      </li>)}
+    </ul>
+    {entries.length > pageSize && <div className="actions">
+      <button className="button secondary" type="button" disabled={!page} onClick={() => setPage(page - 1)}>السابق</button>
+      <button className="button secondary" type="button" disabled={(page + 1) * pageSize >= entries.length}
+        onClick={() => setPage(page + 1)}>التالي</button>
+    </div>}
+  </section>
+}
+
 export function QuizApp({ bank, fileControls }: { bank: PersonalQuiz; fileControls?: ReactNode }) {
   const [settings, setSettings] = useState(() => loadQuizSettings(readLocal('quiz-settings'), bank.automaticAvailable))
   const [attempt, setAttempt] = useState(() => loadAttempt(readLocal('attempt'), bank.catalogs, bank.revision,
     bank.automaticAvailable ? { getCatalog: bank.getExpandedCatalog, revision: bank.revision } : undefined))
   const route = useSyncExternalStore(subscribeScreen, readScreen, () => 'home' as const)
   let screen = route
-  if (screen !== 'home' && !attempt) screen = 'home'
-  if (attempt && screen !== 'home') {
+  if (screen !== 'home' && screen !== 'vocabulary' && !attempt) screen = 'home'
+  if (attempt && screen !== 'home' && screen !== 'vocabulary') {
     if (!attempt.finished) screen = 'quiz'
     else if (screen === 'quiz' || (screen === 'review' && !incorrectAnswers(attempt).length)) screen = 'results'
   }
@@ -374,7 +443,7 @@ export function QuizApp({ bank, fileControls }: { bank: PersonalQuiz; fileContro
 
   useEffect(() => {
     window.scrollTo(0, 0)
-    if (screen === 'results' || screen === 'review') {
+    if (screen === 'results' || screen === 'review' || screen === 'vocabulary') {
       document.querySelector<HTMLElement>('main h1')?.focus({ preventScroll: true })
     }
   }, [screen])
@@ -414,6 +483,7 @@ export function QuizApp({ bank, fileControls }: { bank: PersonalQuiz; fileContro
         <QuizPanel attempt={attempt} select={id => setAttempt(current => current && answer(current, id))} advance={advance} />}
       {screen === 'results' && attempt && <Results attempt={attempt} start={start} retry={retry} />}
       {screen === 'review' && attempt && <Review attempt={attempt} retry={retry} />}
+      {screen === 'vocabulary' && <VocabularyReview bank={bank} settings={settings} />}
     </main>
   )
 }

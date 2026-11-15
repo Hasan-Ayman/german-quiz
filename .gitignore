@@ -2,9 +2,16 @@
 /source-pdfs/
 /data/
 /reports/
+/private/
+/backups/
+/tmp/
 /.venv/
 /node_modules/
 /dist/
 *personal-vocabulary*.json
+*complete-private*.json
+*private-vocabulary*.json
+*vocabulary-backup*.json
+*.backup.json
 *.[pP][dD][fF]
 __pycache__/

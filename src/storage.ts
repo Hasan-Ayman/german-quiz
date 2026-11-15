@@ -1,10 +1,18 @@
 import { isLevel, type Level, type Reliability } from './pilot'
 import { defaultQuestionCount, isQuestionCount, restoreQuestion, type Attempt, type Catalog,
   type Question, type QuestionCount } from './quiz'
+import { selectableTypes } from './question-types'
+import type { ChapterKey } from './source-data'
 
 const prefix = 'german-quiz:'
 export type Theme = 'light' | 'dark'
-export interface QuizSettings { level: Level; count: QuestionCount; reliability: Reliability }
+export interface QuizSettings {
+  level: Level
+  count: QuestionCount
+  reliability: Reliability
+  chapters?: ChapterKey[]
+  types?: string[]
+}
 
 export function readLocal(key: string): string | null {
   try {
@@ -36,6 +44,9 @@ export function loadQuizSettings(text: string | null, automaticAvailable = false
       level: isLevel(saved?.level) ? saved.level : 'A2',
       count: isQuestionCount(saved?.count) ? saved.count : defaultQuestionCount,
       reliability: automaticAvailable && saved?.reliability === 'with-automatic' ? 'with-automatic' : 'reviewed',
+      ...(Array.isArray(saved?.chapters) ? { chapters: saved.chapters.filter((value: unknown) =>
+        typeof value === 'string' && /^A[12]:(?:[1-9]|1[0-2])$/u.test(value)) } : {}),
+      ...(Array.isArray(saved?.types) ? { types: saved.types.filter((value: string) => selectableTypes.includes(value)) } : {}),
     }
   } catch {
     return { level: 'A2', count: defaultQuestionCount, reliability: 'reviewed' }

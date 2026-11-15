@@ -1,4 +1,6 @@
 import { articles, type Level, type PilotEntry, type Reliability } from './pilot.ts'
+import { grammarModes, type GrammarMode } from './question-types.ts'
+import type { ChapterKey } from './source-data.ts'
 
 export const questionCounts = [10, 20, 30, 50] as const
 export type QuestionCount = (typeof questionCounts)[number]
@@ -6,7 +8,7 @@ export const defaultQuestionCount = questionCounts[0]
 export const isQuestionCount = (value: unknown): value is QuestionCount =>
   questionCounts.some(count => value === count)
 export const modes = ['de-ar', 'ar-de', 'article', 'verb', 'adjective'] as const
-export type Mode = (typeof modes)[number]
+export type Mode = (typeof modes)[number] | GrammarMode
 export type Language = 'ar' | 'de'
 export type Random = () => number
 
@@ -19,11 +21,15 @@ export interface Choice extends Text {
   id: string
 }
 
-interface Fact {
+export interface Fact {
   id: string
   entry: PilotEntry
   mode: Mode
   prompt: Text
+  hint?: Text
+  exampleGerman?: string
+  optionCount?: number
+  chapters?: ChapterKey[]
   correct: Choice
   distractors: Choice[]
 }
@@ -33,6 +39,8 @@ export interface Question {
   entry: PilotEntry
   mode: Mode
   prompt: Text
+  hint?: Text
+  exampleGerman?: string
   choices: Choice[]
   correctId: string
 }
@@ -80,12 +88,12 @@ function withoutNotes(text: string) {
   return text.replace(/\s*\([^()]*\)/g, '').trim()
 }
 
-function germanKey(text: string) {
+export function germanKey(text: string) {
   return stripPunctuation(text.normalize('NFC').toLocaleLowerCase('de').replace(/ß/g, 'ss'))
     .replace(/^(der|die|das)\s+/, '')
 }
 
-function arabicKey(text: string) {
+export function arabicKey(text: string) {
   return stripPunctuation(text.normalize('NFKC')
     .replace(/[\p{M}\u0640]/gu, '')
     .replace(/[أإآٱ]/g, 'ا')
@@ -260,6 +268,8 @@ export function buildCatalog(
 function question(fact: Fact, choices: Choice[]): Question {
   return {
     id: fact.id, entry: fact.entry, mode: fact.mode, prompt: fact.prompt,
+    ...(fact.hint ? { hint: fact.hint } : {}),
+    ...(fact.exampleGerman ? { exampleGerman: fact.exampleGerman } : {}),
     correctId: fact.correct.id, choices,
   }
 }
@@ -276,7 +286,9 @@ export function makeQuiz(
     used.add(key(fact))
   }
   // Give each mode a chance before filling the remaining slots at random.
-  for (const mode of shuffle(modes, random)) {
+  const roundModes: Mode[] = available.some(fact => fact.optionCount) ? [...modes, ...grammarModes] : [...modes]
+  for (const mode of shuffle(roundModes, random)) {
+    if (selected.length >= count) break
     const fact = available.find(candidate => candidate.mode === mode && !used.has(key(candidate)))
     if (fact) add(fact)
   }
@@ -286,9 +298,9 @@ export function makeQuiz(
   }
 
   return shuffle(selected, random).map(fact => {
-    const distractors = fact.mode === 'article'
-      ? fact.distractors
-      : chooseThree(shuffle(fact.distractors, random), catalog.compatible)
+    const distractors = fact.optionCount
+      ? shuffle(fact.distractors, random).slice(0, (fact.optionCount ?? 3) - 1)
+      : fact.mode === 'article' ? fact.distractors : chooseThree(shuffle(fact.distractors, random), catalog.compatible)
     if (!distractors) throw new Error('A fact lost its safe distractors.')
     return question(fact, shuffle([fact.correct, ...distractors], random))
   })
@@ -339,10 +351,10 @@ export function nextQuestion(attempt: Attempt): Attempt {
 
 export function restoreQuestion(catalog: Catalog, factId: string, orderedIds: string[]) {
   const fact = catalog.facts.get(factId)
-  if (!fact || new Set(orderedIds).size !== (fact.mode === 'article' ? 3 : 4) ||
+  if (!fact || new Set(orderedIds).size !== (fact.optionCount ?? (fact.mode === 'article' ? 3 : 4)) ||
       new Set(orderedIds).size !== orderedIds.length || !orderedIds.includes(fact.correct.id)) return
   const distractors = orderedIds.filter(id => id !== fact.correct.id)
-  if (fact.mode !== 'article' &&
+  if (!fact.optionCount && fact.mode !== 'article' &&
       distractors.some((id, index) => distractors.slice(index + 1).some(other => !catalog.compatible(id, other)))) return
   const options = [fact.correct, ...fact.distractors]
   const ordered = orderedIds.map(id => options.find(choice => choice.id === id))

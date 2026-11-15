@@ -8,7 +8,16 @@ export type Reliability = 'reviewed' | 'with-automatic'
 export const isReliability = (value: unknown): value is Reliability =>
   value === 'reviewed' || value === 'with-automatic'
 
-interface ExampleText {
+export interface ExampleMetadata {
+  source_type: 'source_pdf' | 'generated'
+  grammar_focus: string
+  verification_status: 'language_checked' | 'previously_reviewed' | 'needs_review'
+  source_page: number | null
+  source_row_id: string
+  example_review?: { method: string; evidence: string }
+}
+
+interface ExampleText extends Partial<ExampleMetadata> {
   entryId: string
   german: string
   arabic: string | null
@@ -85,14 +94,27 @@ function verifiedExample(source: Record<string, unknown>, entryId: string, local
   }]
 }
 
-export function preferredExample(examples: readonly ExampleSentence[], level: Level): ExampleSentence | undefined {
+export function feedbackExamples(examples: readonly ExampleSentence[], level: Level): ExampleSentence[] {
   const fits = (example: ExampleSentence) => level === 'A2' || example.level === 'A1'
-  return examples.find(example =>
-    example.origin === 'source_pdf' && fits(example)
-  ) ?? examples.find(example =>
-    example.origin === 'authored' &&
-    (example.verificationStatus === 'reviewed' || example.verificationStatus === automaticExampleApproval) && fits(example)
-  )
+  const eligible = examples.filter(example => fits(example) &&
+    (example.origin === 'source_pdf' ||
+      example.verificationStatus === 'reviewed' || example.verificationStatus === automaticExampleApproval))
+  const ordered = eligible.some(example => example.source_type)
+    ? [...eligible.filter(example => example.origin === 'source_pdf' && example.arabic),
+      ...eligible.filter(example => example.origin === 'authored' && example.arabic),
+      ...eligible.filter(example => !example.arabic)]
+    : [...eligible.filter(example => example.origin === 'source_pdf'), ...eligible.filter(example => example.origin === 'authored')]
+  const seen = new Set<string>()
+  return ordered.filter(example => {
+    const sentence = example.german.normalize('NFC').replace(/\s+/gu, ' ').trim()
+    if (seen.has(sentence)) return false
+    seen.add(sentence)
+    return true
+  })
+}
+
+export function preferredExample(examples: readonly ExampleSentence[], level: Level): ExampleSentence | undefined {
+  return feedbackExamples(examples, level)[0]
 }
 
 export function addApprovedLocalExamples(entries: PilotEntry[], input: unknown): PilotEntry[] {

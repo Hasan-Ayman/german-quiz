@@ -41,7 +41,8 @@ const personal = process.argv[2] ? JSON.parse(await readFile(process.argv[2], 'u
   })),
 }
 const importBuffer = Buffer.from(JSON.stringify(personal))
-const fixtureName = 'german-quiz-personal-vocabulary-v1.json'
+const fixtureName = 'german-quiz-personal-vocabulary-v' + personal.version + '.json'
+const legacyFile = process.argv[3] ? await readFile(process.argv[3]) : null
 const appUrl = 'http://127.0.0.1:' + server.address().port + base
 const origin = new URL(appUrl).origin
 const vocabularySection = 'ملف المفردات الشخصي'
@@ -63,9 +64,37 @@ try {
   await page.getByRole('heading', { name: 'ابدأ باستيراد مفرداتك' }).waitFor()
   await page.locator('input[type=file]').setInputFiles({ name: 'broken.json', mimeType: 'application/json', buffer: Buffer.from('{') })
   await page.getByRole('alert').waitFor()
+  if (legacyFile) {
+    await page.locator('input[type=file]').setInputFiles({ name: 'legacy.json', mimeType: 'application/json', buffer: legacyFile })
+    await page.getByRole('heading', { name: vocabularySection }).waitFor()
+  }
   await page.locator('input[type=file]').setInputFiles({ name: fixtureName, mimeType: 'application/json', buffer: importBuffer })
   await page.getByRole('heading', { name: vocabularySection }).waitFor()
+  await page.waitForFunction(count => document.querySelector('.vocabulary-file')?.textContent?.includes(count),
+    locale.format(personal.entries.length))
   assert((await page.locator('.vocabulary-file').innerText()).includes(locale.format(personal.entries.length)))
+  if (legacyFile) {
+    const backup = await page.evaluate(async () => {
+      const request = indexedDB.open('german-quiz-personal')
+      const database = await new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () => reject(request.error)
+      })
+      try {
+        return await new Promise((resolve, reject) => {
+          const read = database.transaction('vocabulary').objectStore('vocabulary').get('backup-v1')
+          read.onsuccess = () => resolve(read.result)
+          read.onerror = () => reject(read.error)
+        })
+      } finally {
+        database.close()
+      }
+    })
+    const old = JSON.parse(legacyFile)
+    assert.equal(backup.version, 1)
+    assert.deepEqual(backup.entries.map(entry => entry.id), old.entries.map(entry => entry.id))
+    assert.deepEqual(backup.entries.flatMap(entry => entry.examples), old.entries.flatMap(entry => entry.examples))
+  }
   const safeCount = page.locator('#pilot-availability')
   const select = page.locator('select')
   await select.nth(0).selectOption('A1')
@@ -113,15 +142,30 @@ try {
   await page.getByRole('button', { name: 'ابدأ اختبارًا عشوائيًا' }).click()
   assert.equal(await page.locator('.example-feedback').count(), 0)
   assert.match(await page.locator('.progress-area').innerText(), /٥٠/u)
-  let bilingual = false
-  for (let attempt = 0; attempt < 8 && !bilingual; attempt++) {
+  let expectedExample = false
+  for (let attempt = 0; attempt < 18 && !expectedExample; attempt++) {
     await page.locator('.choice').first().click()
-    bilingual = await page.locator('.example-feedback p[lang=de][dir=ltr]').count() === 1 &&
-      await page.locator('.example-feedback p[lang=ar][dir=rtl]').count() === 1
-    if (!bilingual) await page.getByRole('button', { name: 'السؤال التالي' }).click()
+    expectedExample = await page.locator('.example-feedback p[lang=de][dir=ltr]').count() > 0 &&
+      await page.locator('.example-feedback p[lang=ar][dir=rtl]').count() > 0
+    if (!expectedExample) await page.getByRole('button', { name: 'السؤال التالي' }).click()
   }
-  assert(bilingual)
+  assert(expectedExample)
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+  if (personal.version === 2) {
+    await page.getByRole('link', { name: 'الرئيسية', exact: true }).click()
+    await page.getByRole('link', { name: 'مراجعة المفردات', exact: true }).click()
+    await page.getByRole('searchbox').fill(personal.entries[0].german)
+    await page.locator('.example-feedback p[lang=de][dir=ltr]').first().waitFor()
+    await page.locator('.example-feedback p[lang=ar][dir=rtl]').first().waitFor()
+    await page.getByRole('link', { name: 'الرئيسية', exact: true }).click()
+    await page.getByText('أنواع الأسئلة', { exact: true }).click()
+    await page.getByRole('button', { name: 'إلغاء الاختيار' }).click()
+    await page.getByRole('checkbox', { name: 'الجمع', exact: true }).check()
+    await page.getByText('الفصول', { exact: true }).click()
+    await page.getByRole('checkbox', { name: /^A2 · 1\./u }).check()
+    await page.getByRole('button', { name: 'ابدأ اختبارًا عشوائيًا' }).click()
+    await page.getByText('اختر صيغة الجمع كما وردت في المصدر', { exact: true }).waitFor()
+  }
 
   const fresh = await browser.newContext({ viewport: { width: 1280, height: 850 } })
   const transferPage = await fresh.newPage()

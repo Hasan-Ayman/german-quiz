@@ -7,7 +7,9 @@ export default defineConfig({
   build: { sourcemap: false, emptyOutDir: true },
   server: {
     fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/data/**',
-      '**/reports/**', '**/source-pdfs/**', '**/*personal-vocabulary*.json'] },
+      '**/reports/**', '**/source-pdfs/**', '**/private/**', '**/backups/**', '**/tmp/**', '**/*.[pP][dD][fF]',
+      '**/*personal-vocabulary*.json', '**/*complete-private*.json', '**/*private-vocabulary*.json',
+      '**/*vocabulary-backup*.json', '**/*.backup.json'] },
   },
   plugins: [react()],
 })

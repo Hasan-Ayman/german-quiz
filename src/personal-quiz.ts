@@ -1,6 +1,8 @@
-import { type PersonalDataset } from './personal-data'
-import { levels, type Level } from './pilot'
-import { buildCatalog, type Catalog } from './quiz'
+import type { PersonalDataset } from './personal-data'
+import { levels, type Level } from './pilot.ts'
+import { buildCatalog, germanKey, type Catalog, type Fact } from './quiz.ts'
+import { extendWithGrammar } from './grammar-quiz.ts'
+import type { ChapterKey } from './source-data'
 import type { QuizSettings } from './storage'
 
 export interface PersonalQuiz {
@@ -10,18 +12,23 @@ export interface PersonalQuiz {
   catalogs: Record<Level, Catalog>
   getExpandedCatalog: (level: Level) => Catalog
   importedCounts: Record<Level, number>
+  chapters?: { key: ChapterKey; level: Level; number: number; title: string }[]
 }
 
 export async function preparePersonalQuiz(dataset: PersonalDataset): Promise<PersonalQuiz> {
   const reviewed = dataset.entries.filter(entry => entry.vocabularyStatus === 'reviewed')
   const groups = dataset.distractorGroups
-  const catalogs = { A1: buildCatalog(reviewed, 'A1', false, groups), A2: buildCatalog(reviewed, 'A2', false, groups) }
+  const makeCatalog = (entries: typeof reviewed, level: Level, strict: boolean) => {
+    const base = buildCatalog(entries, level, strict, groups)
+    return dataset.sourceRows ? extendWithGrammar(base, entries, dataset.entries, dataset.sourceRows, level) : base
+  }
+  const catalogs = { A1: makeCatalog(reviewed, 'A1', false), A2: makeCatalog(reviewed, 'A2', false) }
   const automaticAvailable = reviewed.length !== dataset.entries.length
   const expanded = new Map<Level, Catalog>()
   function getExpandedCatalog(level: Level) {
     const existing = expanded.get(level)
     if (existing) return existing
-    const catalog = buildCatalog(dataset.entries, level, true, groups)
+    const catalog = makeCatalog(dataset.entries, level, true)
     expanded.set(level, catalog)
     return catalog
   }
@@ -31,14 +38,36 @@ export async function preparePersonalQuiz(dataset: PersonalDataset): Promise<Per
   const answerData = dataset.entries.map(({ id, german, part_of_speech, article, arabic_translations, synonyms,
     levels, quiz, vocabularyStatus }) =>
     [id, german, part_of_speech, article, arabic_translations, synonyms, levels, quiz, vocabularyStatus])
-  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([answerData, groups])))
+  const versionedData = dataset.sourceRows ? [answerData, groups, dataset.sourceRows.map(row =>
+    [row.review_fingerprint, row.verification_status, row.plural_marker, row.gradation_marker, row.derived,
+      row.examples?.map(example => [example.german, example.verification_status, Boolean(example.arabic)])])] : [answerData, groups]
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(versionedData)))
   const revision = Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('')
   const importedCounts = Object.fromEntries(levels.map(level =>
     [level, dataset.entries.filter(entry => entry.levels.includes(level)).length])) as Record<Level, number>
-  return { dataset, revision, automaticAvailable, catalogs, getExpandedCatalog, importedCounts }
+  const chapters = dataset.sourceRows && [...new Map(dataset.sourceRows.map(row => {
+    const key: ChapterKey = `${row.level}:${row.chapter_number}`
+    return [key, { key, level: row.level, number: row.chapter_number, title: row.chapter_title }] as const
+  })).values()].sort((a, b) => a.level.localeCompare(b.level) || a.number - b.number)
+  return { dataset, revision, automaticAvailable, catalogs, getExpandedCatalog, importedCounts, chapters }
 }
 
-export function selectedPersonalCatalog(bank: PersonalQuiz, { level, reliability }: QuizSettings) {
-  return bank.automaticAvailable && reliability === 'with-automatic'
+export function factType(fact: Fact) {
+  if (fact.mode === 'de-ar' || fact.mode === 'ar-de') return fact.entry.part_of_speech + ':' + fact.mode
+  if (fact.mode === 'verb' || fact.mode === 'adjective') return fact.mode + ':de-ar'
+  return fact.mode
+}
+
+export function selectedPersonalCatalog(bank: PersonalQuiz, { level, reliability, chapters, types }: QuizSettings) {
+  const catalog = bank.automaticAvailable && reliability === 'with-automatic'
     ? bank.getExpandedCatalog(level) : bank.catalogs[level]
+  if (!bank.chapters || (!chapters?.length && !types)) return catalog
+  const facts = new Map([...catalog.facts].filter(([, fact]) => {
+    if (types && !types.includes(factType(fact))) return false
+    if (!chapters?.length) return true
+    const sourceChapters = fact.chapters ?? (fact.entry as PersonalDataset['entries'][number]).sources.map(source =>
+      `${source.level}:${source.chapter}` as ChapterKey)
+    return sourceChapters.some(chapter => (level === 'A2' || chapter.startsWith('A1:')) && chapters.includes(chapter))
+  }))
+  return { ...catalog, facts, entryCount: new Set([...facts.values()].map(fact => germanKey(fact.entry.german))).size }
 }
