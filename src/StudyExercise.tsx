@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { checkStudyAnswer, shuffled } from './study-engine'
 import type { StudyQuestion } from './study-content'
+import { StudySpeech } from './StudySpeech'
 
 const number = new Intl.NumberFormat('ar-u-nu-arab')
 export type StudyResult = 'correct' | 'incorrect' | 'known' | 'missed' | 'completed'
@@ -36,6 +37,24 @@ function Question({ item, next, onResult }: {
   function submit(event: FormEvent) {
     event.preventDefault()
     if (response.trim()) grade(response)
+  }
+
+  if (item.type === 'writing') {
+    return <section className="panel study-flow" aria-label="التعبير الكتابي">
+      <h2>{item.instruction}</h2>
+      <label htmlFor="study-writing">اكتب بالألمانية</label>
+      <textarea id="study-writing" rows={5} lang="de" dir="ltr" spellCheck={false}
+        value={response} onChange={event => setResponse(event.target.value)} />
+      <details>
+        <summary>نموذج للمقارنة</summary>
+        <p lang="de" dir="ltr">{item.model}</p>
+        <p lang="ar" dir="rtl">{item.passageArabic}</p>
+        <p>قارن إجابتك بالنموذج. راجع ترتيب الكلمات، وتصريف الفعل، وكتابة الأسماء بحروف كبيرة.</p>
+      </details>
+      <p className="study-source">التقييم ذاتي في هذا النشاط.</p>
+      {marked ? <button type="button" className="button primary" onClick={next}>النشاط التالي</button>
+        : <button type="button" className="button primary" disabled={!response.trim()} onClick={() => mark('completed')}>تمّت المراجعة الذاتية</button>}
+    </section>
   }
 
   return <section className="panel study-flow" aria-label="نشاط الدراسة">
@@ -86,6 +105,9 @@ function Question({ item, next, onResult }: {
       <p lang="ar" dir="rtl">{item.explanation}</p>
       <p lang="de" dir="ltr">{item.german}</p>
       <p lang="ar" dir="rtl">{item.arabic}</p>
+      {item.type === 'reading' && item.passageArabic && <details><summary>ترجمة النص</summary>
+        <p lang="ar" dir="rtl">{item.passageArabic}</p></details>}
+      {item.type === 'reading' && <StudySpeech german={item.prompt} />}
       <p className="study-source">المصدر <bdi dir="ltr">{item.source.document}</bdi> · صفحة PDF {number.format(item.source.page)}</p>
       <button type="button" className="button primary" onClick={next}>النشاط التالي</button>
     </div>}

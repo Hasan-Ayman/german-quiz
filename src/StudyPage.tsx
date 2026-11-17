@@ -7,7 +7,7 @@ import type { PersonalDataset } from './personal-data'
 import { flashcardModes, vocabularyFlashcards, type FlashcardMode } from './study-flashcards'
 import { StudyExercise } from './StudyExercise'
 
-const interactive = new Set<StudyType>(['flashcard', 'cloze', 'verb', 'grammar', 'case', 'order', 'error', 'transform'])
+const interactive = new Set<StudyType>(['flashcard', 'cloze', 'verb', 'grammar', 'case', 'order', 'error', 'transform', 'reading', 'writing'])
 
 const names: Record<StudyType, string> = {
   cloze: 'إكمال الجمل', flashcard: 'بطاقات المفردات', verb: 'تصريف الأفعال', grammar: 'تحديات القواعد',
@@ -27,6 +27,13 @@ function ChapterOverview({ chapter, pack }: { chapter: StudyChapter; pack: Study
     <details>
       <summary>موضوعات الفصل وقواعده</summary>
       <ul lang="de" dir="ltr">{[...chapter.themes, ...chapter.grammar].map((text, i) => <li key={i}>{text}</li>)}</ul>
+    </details>
+    <details>
+      <summary>النطق والاستماع</summary>
+      <ul lang="de" dir="ltr">{chapter.pronunciation.map((item, i) => <li key={i}>{item}</li>)}</ul>
+      <p>موضوعات النطق موثّقة في صفحة PDF {number.format(chapter.overviewPage)}.</p>
+      {chapter.pageCandidates.listening?.length > 0 && <p>صفحات مرشّحة لأنشطة الاستماع: {chapter.pageCandidates.listening.map(page => number.format(page)).join('، ')}.</p>}
+      <p>تسجيلات الكتاب غير مرفقة. الاستماع والإملاء باستخدام التسجيلات الأصلية غير متاحين.</p>
     </details>
     {pack.lessons.filter(lesson => lesson.chapter === chapter.id).map(lesson => <details key={lesson.topic}>
       <summary>{lesson.title}</summary>

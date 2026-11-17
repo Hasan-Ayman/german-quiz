@@ -48,3 +48,9 @@ Phase 1 inventories the authoritative source pages and pairs printed chapter bou
 
 - Added active grammar and case exercises, tapped word ordering with a typed alternative, wrong-word identification and correction, and sentence transformation in both answer formats.
 - Tests: 57 passed with real fixtures, 10 baseline-only fixture tests skipped. Production build and offline browser flows passed for ordering and correcting a real item.
+
+## Phase 7 — Reading, writing and pronunciation
+
+- Activated original bilingual reading exercises and writing tasks for all chapters. Writing uses a model, checklist and self-assessment, while reading has scored answer checking.
+- Chapter pages show pronunciation topics and candidate listening pages. The source folder contains no recordings. The app labels textbook audio and dictation unavailable, and offers synthetic pronunciation only through a local German voice.
+- Tests: 57 passed with real fixtures, 10 baseline-only fixture tests skipped. Production build and offline browser checks for reading, writing and unavailable textbook audio passed.
