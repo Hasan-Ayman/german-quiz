@@ -554,7 +554,7 @@ export default function App() {
       {applyUpdate && <aside className="site-container app-update" aria-label="تحديث التطبيق">
         <button type="button" className="button secondary" onClick={applyUpdate}>تثبيت تحديث التطبيق</button>
       </aside>}
-      {screen === 'study' ? <StudyPage /> : bank ? <QuizApp key={importSequence} bank={bank} fileControls={fileControls} />
+      {screen === 'study' ? <StudyPage vocabulary={bank?.dataset} /> : bank ? <QuizApp key={importSequence} bank={bank} fileControls={fileControls} />
         : <main className="site-container main-content screen-home">
           {loading ? <p role="status">جارٍ فتح مكتبة المفردات…</p> : fileControls}
         </main>}

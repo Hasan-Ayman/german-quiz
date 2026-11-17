@@ -1,7 +1,13 @@
 import { useEffect, useState, type ChangeEvent } from 'react'
-import { readStudyFile, studyTypes, validateStudyPack, type StudyChapter, type StudyPack, type StudyType } from './study-content'
-import { studyPool, type StudyFilter } from './study-engine'
+import { readStudyFile, studyTypes, validateStudyPack, type StudyChapter, type StudyPack, type StudyQuestion, type StudyType } from './study-content'
+import { studyPool, studyRound, type StudyFilter } from './study-engine'
 import { loadStudyPack, saveStudyPack } from './study-storage'
+
+import type { PersonalDataset } from './personal-data'
+import { flashcardModes, vocabularyFlashcards, type FlashcardMode } from './study-flashcards'
+import { StudyExercise } from './StudyExercise'
+
+const interactive = new Set<StudyType>(['flashcard', 'cloze', 'verb'])
 
 const names: Record<StudyType, string> = {
   cloze: 'إكمال الجمل', flashcard: 'بطاقات المفردات', verb: 'تصريف الأفعال', grammar: 'تحديات القواعد',
@@ -32,7 +38,7 @@ function ChapterOverview({ chapter, pack }: { chapter: StudyChapter; pack: Study
   </section>
 }
 
-export function StudyPage() {
+export function StudyPage({ vocabulary }: { vocabulary?: PersonalDataset }) {
   const [pack, setPack] = useState<StudyPack | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -42,6 +48,10 @@ export function StudyPage() {
   const [chapterId, setChapterId] = useState('A1:1')
   const [type, setType] = useState<StudyFilter['type']>('all')
   const [topic, setTopic] = useState('')
+  const [count, setCount] = useState(10)
+  const [flashcardMode, setFlashcardMode] = useState<FlashcardMode>('de-ar')
+  const [automatic, setAutomatic] = useState(false)
+  const [session, setSession] = useState<StudyQuestion[]>([])
 
   useEffect(() => {
     let active = true
@@ -77,7 +87,11 @@ export function StudyPage() {
 
   const chapter = pack?.chapters.find(chapter => chapter.id === chapterId)
   const scope = view === 'chapter' ? chapter ? [chapter.id] : [] : selected
-  const pool = pack ? studyPool(pack, { level: view === 'chapter' ? 'all' : level, chapters: scope, type, topic }) : []
+  const filter = { level: view === 'chapter' ? 'all' as const : level, chapters: scope, type, topic }
+  const fromPack = pack ? studyPool(pack, filter) : []
+  const pool = type === 'flashcard' && vocabulary && !topic
+    ? vocabularyFlashcards(vocabulary, filter, flashcardMode, automatic) : fromPack
+  const playable = pool.filter(item => interactive.has(item.type))
   const shownChapters = pack?.chapters.filter(chapter => level === 'all' || chapter.id.startsWith(level + ':')) ?? []
 
   return <main className="site-container main-content study-flow">
@@ -91,7 +105,7 @@ export function StudyPage() {
         : !loading && <p>استورد ملف حزمة الدراسة لعرض الفصول والأنشطة. ملف المفردات الحالي مستقل.</p>}
     </section>
 
-    {pack && <>
+    {session.length > 0 ? <StudyExercise items={session} close={() => setSession([])} /> : pack && <>
       <nav className="study-actions" aria-label="طريقة الدراسة">
         <button type="button" className="button secondary" aria-pressed={view === 'chapter'} onClick={() => { setView('chapter'); setTopic('') }}>الدراسة حسب الفصل</button>
         <button type="button" className="button secondary" aria-pressed={view === 'free'} onClick={() => { setView('free'); setTopic('') }}>التدريب الحر</button>
@@ -131,7 +145,23 @@ export function StudyPage() {
                 .map(lesson => <option key={lesson.topic} value={lesson.topic}>{lesson.chapter} · {lesson.title}</option>)}
             </select>
           </label>
+          {type === 'flashcard' && vocabulary && <>
+            <label>وجه البطاقة
+              <select value={flashcardMode} onChange={event => setFlashcardMode(event.target.value as FlashcardMode)}>
+                {Object.entries(flashcardModes).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+              </select>
+            </label>
+            <label><input type="checkbox" checked={automatic} onChange={event => setAutomatic(event.target.checked)} />
+              إدراج المفردات المتحقّق منها آليًا</label>
+          </>}
           <p role="status">{number.format(pool.length)} نشاطًا في النطاق المختار.</p>
+          <label>عدد الأنشطة
+            <select value={count} onChange={event => setCount(Number(event.target.value))}>
+              {[5, 10, 20, 50].map(value => <option key={value} value={value}>{number.format(value)}</option>)}
+            </select>
+          </label>
+          <button className="button primary" type="button" disabled={!playable.length}
+            onClick={() => setSession(studyRound(playable, count))}>ابدأ التدريب</button>
         </section>
         {view === 'chapter' && chapter && <ChapterOverview chapter={chapter} pack={pack} />}
       </div>

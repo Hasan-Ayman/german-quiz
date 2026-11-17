@@ -30,11 +30,12 @@ export function shuffled<T>(items: readonly T[], rng = Math.random) {
 }
 
 export function studyRound(pool: readonly StudyQuestion[], count: number, rng = Math.random) {
+  if (!Number.isInteger(count) || count < 1) return []
   // A chapter can teach one fact through multiple interactions. Test it once per mixed round.
   const included = new Set<string>()
   const result: StudyQuestion[] = []
   for (const item of shuffled(pool, rng)) {
-    const key = item.chapter + ':' + item.german
+    const key = item.type === 'flashcard' && item.origin === 'vocabulary' ? item.id : item.chapter + ':' + item.german
     if (included.has(key)) continue
     included.add(key)
     result.push(item)

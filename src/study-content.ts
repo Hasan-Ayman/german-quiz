@@ -36,7 +36,11 @@ export interface StudyLesson {
   verification: 'editorial_checked'
 }
 
-export interface StudyQuestion extends Omit<StudyLesson, 'title'> {
+export interface StudyQuestion extends Omit<StudyLesson, 'title' | 'origin' | 'verification'> {
+  origin: StudyLesson['origin'] | 'vocabulary'
+  verification: StudyLesson['verification'] | 'reviewed' | 'automated_checked'
+  promptLanguage?: 'de' | 'ar'
+  answerLanguage?: 'de' | 'ar'
   id: string
   type: StudyType
   prompt: string
