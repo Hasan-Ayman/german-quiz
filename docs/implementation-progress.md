@@ -54,3 +54,9 @@ Phase 1 inventories the authoritative source pages and pairs printed chapter bou
 - Activated original bilingual reading exercises and writing tasks for all chapters. Writing uses a model, checklist and self-assessment, while reading has scored answer checking.
 - Chapter pages show pronunciation topics and candidate listening pages. The source folder contains no recordings. The app labels textbook audio and dictation unavailable, and offers synthetic pronunciation only through a local German voice.
 - Tests: 57 passed with real fixtures, 10 baseline-only fixture tests skipped. Production build and offline browser checks for reading, writing and unavailable textbook audio passed.
+
+## Phase 8 — Progress, review, assessments and backup
+
+- Added local activity history, chapter completion, grammar practice indicators, a mistake notebook, scheduled review and chapter or cumulative practice assessments. The review intervals are 1, 3, 7, 14 and 30 days after consecutive successes, and a miss makes the item due immediately.
+- Progress backup imports merge by activity ID. Conflicts and malformed files abort without overwriting existing study progress. Private curriculum and progress also export separately.
+- Tests: 59 passed with real fixtures, 10 baseline-only fixtures skipped. Production build, offline backup and restore, a rejected import, and a chapter assessment passed in the browser.

@@ -4,7 +4,7 @@ import type { StudyQuestion } from './study-content'
 import { StudySpeech } from './StudySpeech'
 
 const number = new Intl.NumberFormat('ar-u-nu-arab')
-export type StudyResult = 'correct' | 'incorrect' | 'known' | 'missed' | 'completed'
+import type { StudyResult } from './study-progress'
 
 function LocalText({ text, lang = 'de' }: { text: string; lang?: 'de' | 'ar' }) {
   return <bdi lang={lang} dir={lang === 'ar' ? 'rtl' : 'ltr'}>{text}</bdi>
