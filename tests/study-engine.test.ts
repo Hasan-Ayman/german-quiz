@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { normalizeStudyAnswer, validateStudyPack } from '../src/study-content'
-import { checkStudyAnswer, studyPool, studyRound } from '../src/study-engine'
+import { checkStudyAnswer, shuffledStudyTokens, studyAssessment, studyPool, studyRound } from '../src/study-engine'
 
 it('keeps German inflection and capitalization and accepts harmless Arabic diacritic variants', () => {
   expect(normalizeStudyAnswer('  das  Ziel. ')).toBe('das Ziel')
@@ -12,6 +12,13 @@ it('keeps German inflection and capitalization and accepts harmless Arabic diacr
 
 it('rejects incompatible study imports before persistence', () => {
   expect(() => validateStudyPack({ format: 'german-quiz-personal', version: 2 })).toThrow(/Unsupported/)
+})
+
+it('keeps all tokens without putting the solved sequence in the word bank', () => {
+  const tokens = ['eins', 'zwei', 'drei']
+  const presented = shuffledStudyTokens(tokens, () => .99)
+  expect(presented.map(item => item.text)).not.toEqual(tokens)
+  expect(presented.map(item => item.i).sort()).toEqual([0, 1, 2])
 })
 
 const folder = process.env.GERMAN_QUIZ_STUDY_AUDIT
@@ -31,8 +38,15 @@ describe.runIf(Boolean(folder))('validates the actual private package', () => {
         expect(checkStudyAnswer(question, '')).toBe(false)
       }
     }
+    const reading = pack.questions.find(item => item.type === 'reading')!
+    expect(() => validateStudyPack({ ...book, questions: [{ ...reading, answerLanguage: 'fr' }] })).toThrow(/practice item/)
+    expect(() => validateStudyPack({ ...book, questions: [{ ...reading, answers: [...reading.answers, reading.answers[0] + '؟'] }] })).toThrow(/practice item/)
+    const correction = pack.questions.find(item => item.errorIndex !== undefined && item.errorIndex > 0)!
+    expect(() => validateStudyPack({ ...book, questions: [{ ...correction, errorIndex: correction.errorIndex! - 1 }] })).toThrow(/error location/)
     const choices = a2.find(item => item.choices)!
     expect(() => validateStudyPack({ ...book, questions: [{ ...choices, choices: [choices.answers[0], choices.answers[0]] }] })).toThrow(/choices/)
+    expect(studyAssessment(a2, Number.NaN)).toEqual([])
+    expect(studyAssessment(a2, 0)).toEqual([])
     const round = studyRound(a2, 10, () => 0.25)
     expect(round).toHaveLength(10)
     expect(new Set(round.map(item => item.chapter + ':' + item.german)).size).toBe(10)

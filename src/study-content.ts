@@ -151,12 +151,14 @@ export function validateStudyPack(value: unknown): StudyPack {
   const ids = new Set<string>()
   for (const question of questions) {
     checked(question)
-    const { id, type, prompt, instruction, answers, choices, tokens, passageArabic } = question
-    const lang = type === 'reading' || type === 'flashcard' ? 'ar' : 'de'
+    const { id, type, prompt, instruction, answers, choices, tokens, passageArabic, promptLanguage, answerLanguage } = question
+    const lang = answerLanguage === 'ar' || (answerLanguage === undefined && (type === 'reading' || type === 'flashcard')) ? 'ar' : 'de'
     const requiresChoices = ['cloze', 'case', 'verb', 'grammar', 'reading'].includes(type as string)
     if (typeof id !== 'string' || !/^[A-Za-z0-9:_-]{1,96}$/u.test(id) || ids.has(id) ||
         !studyTypes.includes(type as StudyType) || !text(prompt) || !arabic(instruction) ||
-        !textList(answers) || answers.some(value => !normalizeStudyAnswer(value, lang)) ||
+        (promptLanguage !== undefined && promptLanguage !== 'ar' && promptLanguage !== 'de') ||
+        (answerLanguage !== undefined && answerLanguage !== 'ar' && answerLanguage !== 'de') ||
+        !textList(answers) || answers.some(value => !normalizeStudyAnswer(value, lang)) || keys(answers, lang).size !== answers.length ||
         (type === 'writing' ? answers.length !== 0 : answers.length === 0) ||
         lessonByTopic.get(question.topic)?.chapter !== question.chapter ||
         (type === 'writing' && (!german(question.model) || !arabic(passageArabic))) ||
@@ -168,9 +170,12 @@ export function validateStudyPack(value: unknown): StudyPack {
       }
     }
     if (type === 'order' && (!textList(tokens) || tokens.length < 2 || tokens.length > 12 ||
-        !keys(answers).has(normalizeStudyAnswer(tokens.join(' '))))) throw new Error('Invalid word-order item')
+        new Set(tokens).size < 2 || !keys(answers).has(normalizeStudyAnswer(tokens.join(' '))))) {
+      throw new Error('Invalid word-order item')
+    }
     if (question.errorIndex !== undefined && (type !== 'error' || typeof question.errorIndex !== 'number' ||
-        !Number.isInteger(question.errorIndex) || question.errorIndex < 0 || question.errorIndex >= (prompt as string).length)) {
+        !Number.isInteger(question.errorIndex) || question.errorIndex < 0 ||
+        ![...(prompt as string).matchAll(/\S+/gu)].some(word => word.index === question.errorIndex))) {
       throw new Error('Invalid error location')
     }
     ids.add(id)

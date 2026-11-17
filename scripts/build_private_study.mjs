@@ -13,6 +13,15 @@ const read = async name => JSON.parse(await readFile(resolve(folder, name), 'utf
 const curriculum = await read('curriculum-private.json')
 const rows = [...await read('reviewed-a1-material.json'), ...await read('reviewed-a2-material.json')]
 const variants = await read('reviewed-variants.json')
+const answerVariants = await read('reviewed-answer-variants.json').catch(error => {
+  if (error.code === 'ENOENT') return {}
+  throw error
+})
+const answersFor = (id, defaults) => {
+  const answers = [...defaults, ...(answerVariants[id] ?? [])]
+  assert(unique(answers), 'Duplicate editorial answer for ' + id)
+  return answers
+}
 const writingModels = await read('reviewed-writing-models.json')
 const chapters = curriculum.chapters
 const questions = []
@@ -37,10 +46,11 @@ for (const [chapter, topicIndex, kind, title, explanation, before, answer, after
   assert([target, second].every(value => /\p{Script=Latin}/u.test(value)), 'Missing German text for ' + chapter)
   lessons.push({ topic, chapter, title, explanation, german: target, arabic: translation, source,
     origin: 'authored', verification: 'editorial_checked' })
-  const add = (type, question) => questions.push({
-    id: chapter + ':' + type, type, chapter, topic, source, origin: 'authored',
-    verification: 'editorial_checked', explanation, german: target, arabic: translation, ...question,
-  })
+  const add = (type, question) => {
+    const id = chapter + ':' + type
+    questions.push({ id, type, chapter, topic, source, origin: 'authored', verification: 'editorial_checked',
+      explanation, german: target, arabic: translation, ...question, answers: answersFor(id, question.answers) })
+  }
   add('cloze', { prompt: before + '____' + after, instruction: title, answers: [answer], choices: [answer, ...wrong] })
   add(kind, { prompt: before + '____' + after, instruction: title, answers: [answer], choices: [answer, ...wrong] })
   add('flashcard', { prompt: target, instruction: 'استحضر المعنى بالعربية ثم اقلب البطاقة.', answers: [translation] })
@@ -77,9 +87,11 @@ for (const [chapter, topicIndex, type, title, explanation, before, answer, after
   const material = { topic, chapter, explanation, german, arabic,
     source: { document: record.source, page: record.overviewPage }, origin: 'authored', verification: 'editorial_checked' }
   lessons.push({ ...material, title })
-  questions.push({ ...material, id: topic + ':practice', type, prompt: before + '____' + after,
-    instruction: title, answers: [answer], choices: [answer, ...wrong] })
+  const id = topic + ':practice'
+  questions.push({ ...material, id, type, prompt: before + '____' + after,
+    instruction: title, answers: answersFor(id, [answer]), choices: [answer, ...wrong] })
 }
+assert(Object.keys(answerVariants).every(id => questions.some(item => item.id === id)), 'Unknown question in answer variants')
 const sources = curriculum.sources.map(({ id, pages, sha256 }) => ({ id, pages, sha256 }))
 const data = { format: 'german-quiz-study', version: 1, sources, chapters, lessons, questions }
 const filename = resolve(folder, 'german-quiz-study-private.json')

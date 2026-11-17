@@ -29,6 +29,15 @@ export function shuffled<T>(items: readonly T[], rng = Math.random) {
   return result
 }
 
+export function shuffledStudyTokens(tokens: readonly string[], rng = Math.random) {
+  const result = shuffled(tokens.map((text, i) => ({ text, i })), rng)
+  if (result.length > 1 && result.every((token, i) => token.text === tokens[i])) {
+    const split = result.findIndex(token => token.text !== result[0].text)
+    if (split > 0) return [...result.slice(split), ...result.slice(0, split)]
+  }
+  return result
+}
+
 const practiceKey = (item: StudyQuestion) => item.practiceKey ? 'vocabulary:' + item.practiceKey :
   item.type === 'flashcard' && item.origin === 'vocabulary' ? item.id : item.chapter + ':' + item.german
 
@@ -48,6 +57,7 @@ export function studyRound(pool: readonly StudyQuestion[], count: number, rng = 
 }
 
 export function studyAssessment(pool: StudyQuestion[], count: number, rng = Math.random) {
+  if (!Number.isInteger(count) || count < 1) return []
   const candidates = shuffled(pool, rng)
   const selected: StudyQuestion[] = []
   const used = new Set<string>()

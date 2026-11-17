@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { checkStudyAnswer, shuffled } from './study-engine'
+import { checkStudyAnswer, shuffled, shuffledStudyTokens } from './study-engine'
 import type { StudyQuestion } from './study-content'
 import { StudySpeech } from './StudySpeech'
 
@@ -20,7 +20,7 @@ function Question({ item, next, onResult, onRule }: {
   const [typed, setTyped] = useState(!item.choices && !item.tokens)
   const [foundError, setFoundError] = useState(item.errorIndex === undefined)
   const [locationAttempt, setLocationAttempt] = useState(false)
-  const [tokens] = useState(() => shuffled((item.tokens ?? []).map((text, i) => ({ text, i }))))
+  const [tokens] = useState(() => shuffledStudyTokens(item.tokens ?? []))
   const [ordered, setOrdered] = useState<number[]>([])
   const [choices] = useState(() => shuffled(item.choices ?? []))
   const answerLanguage = item.answerLanguage ?? (item.type === 'reading' || item.type === 'flashcard' ? 'ar' : 'de')
