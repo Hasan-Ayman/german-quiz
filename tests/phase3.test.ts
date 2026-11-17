@@ -1,11 +1,14 @@
 import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { rawPilot } from './fixtures'
 import { levels, preferredExample, readAutomaticallyValidated, readVerifiedPilot } from '../src/pilot'
 import { answer, buildCatalog, isCorrect, makeQuiz, modes, newAttempt, questionCounts, retryQuiz } from '../src/quiz'
 import { loadAttempt, loadQuizSettings, saveAttempt } from '../src/storage'
 
-const url = (name: string) => new URL('../data/' + name + '.json', import.meta.url)
+const phase3Folder = process.env.GERMAN_QUIZ_PHASE3_FIXTURES
+const fixture = (path: string) => phase3Folder ? resolve(phase3Folder, path) : new URL('../' + path, import.meta.url)
+const url = (name: string) => fixture('data/' + name + '.json')
 const read = (name: string) => JSON.parse(readFileSync(url(name), 'utf8'))
 const hasLocalBank = existsSync(url('phase3-local-quiz'))
 
@@ -84,9 +87,9 @@ describe.runIf(hasLocalBank)('local expansion from the actual reviewed bank', ()
     }
   })
 
-  it.runIf(existsSync(new URL('../reports/phase3-scalable-review.json', import.meta.url)))(
+  it.runIf(existsSync(fixture('reports/phase3-scalable-review.json')))(
     'keeps the automated and manual review queues outside the expanded quiz', () => {
-      const report = JSON.parse(readFileSync(new URL('../reports/phase3-scalable-review.json', import.meta.url), 'utf8'))
+      const report = JSON.parse(readFileSync(fixture('reports/phase3-scalable-review.json'), 'utf8'))
       const ids = new Set(reviewed.map(entry => entry.id))
       const inactive = report.entries.filter((entry: { local_approval: string }) => entry.local_approval !== 'approved')
       expect(inactive).toHaveLength(report.summary.remaining_inactive)
@@ -99,7 +102,7 @@ describe.runIf(hasLocalBank)('local expansion from the actual reviewed bank', ()
 
   it.runIf(hasAutomatic)('admits only explicitly authorized candidates and preserves their example status', () => {
     const readReport = (name: string) =>
-      JSON.parse(readFileSync(new URL('../reports/' + name + '.json', import.meta.url), 'utf8'))
+      JSON.parse(readFileSync(fixture('reports/' + name + '.json'), 'utf8'))
     const activation = readReport('phase3-local-activation')
     const review = readReport('phase3-scalable-review')
     const allowed = new Set<string>(review.entries.filter((item: { category: string; local_approval: string }) =>

@@ -14,6 +14,7 @@ interface Candidate {
   exampleGerman?: string
   group: string
   chapter: ChapterKey
+  page: number
   category?: boolean
 }
 
@@ -39,7 +40,7 @@ function sourceCandidates(entry: PersonalEntry, row: SourceRow): Candidate[] {
     items.push({ entry, mode, variant: options.variant ?? '', prompt, value: (options.lang === 'ar' ? ar : de)(value!),
       group: options.group ?? mode, category: options.category, hint: options.hint,
       exampleGerman: options.exampleGerman,
-      chapter: `${row.level}:${row.chapter_number}` })
+      chapter: `${row.level}:${row.chapter_number}`, page: row.source_page })
   }
   if (row.part_of_speech === 'noun') {
     const form = row.plural && /^die\s+\p{L}/u.test(row.plural) ? row.plural : null
@@ -130,7 +131,10 @@ export function extendWithGrammar(
     const previous = facts.get(id)
     if (previous) {
       if (identity(item) === identity({ ...item, prompt: previous.prompt, hint: previous.hint }) &&
-          !previous.chapters?.includes(item.chapter)) previous.chapters?.push(item.chapter)
+          key(item.value) === key(previous.correct) && !previous.chapters?.includes(item.chapter)) {
+        previous.chapters?.push(item.chapter)
+        if (previous.sourcePages) previous.sourcePages[item.chapter] = item.page
+      }
       continue
     }
     const relevant = byGroup.get(item.group) ?? []
@@ -154,7 +158,7 @@ export function extendWithGrammar(
     if (distractors.length < optionCount - 1) continue
     facts.set(id, {
       id, entry, mode: item.mode, prompt: item.prompt, hint: item.hint, exampleGerman: item.exampleGerman,
-      optionCount, chapters: [item.chapter],
+      optionCount, chapters: [item.chapter], sourcePages: { [item.chapter]: item.page },
       correct: { ...item.value, id: 'form-answer' }, distractors,
     })
   }

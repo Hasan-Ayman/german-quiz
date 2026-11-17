@@ -1,4 +1,12 @@
 const paths = {
+  progress: <><path d="M4 19h16M7 15v-4m5 4V7m5 8V4"/></>,
+  sliders: <><path d="M5 6h14M5 12h14M5 18h14"/><circle cx="9" cy="6" r="2" fill="var(--surface)"/><circle cx="15" cy="12" r="2" fill="var(--surface)"/><circle cx="10" cy="18" r="2" fill="var(--surface)"/></>,
+  layers: <path d="m12 3 9 5-9 5-9-5zm-9 9 9 5 9-5m-18 4 9 5 9-5"/>,
+  cards: <><rect x="6" y="5" width="14" height="14" rx="2"/><path d="M3 8v10a4 4 0 0 0 4 4h10m-7-12h6m-6 4h4"/></>,
+  sort: <path d="M9 6h10M9 12h7m-7 6h4M5 4v16m-2-2 2 2 2-2"/>,
+  pen: <path d="m4 20 4-1 12-12-3-3L5 16zm11-14 3 3"/>,
+  down: <path d="m6 9 6 6 6-6"/> ,
+  grid: <><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></>,
   book: <><path d="M3 5.5c4-.7 6 .1 9 2 3-1.9 5-2.7 9-2v13c-4-.7-6 .1-9 2-3-1.9-5-2.7-9-2z"/><path d="M12 7.5v13"/></>,
   moon: <path d="M20.4 15.5A8.8 8.8 0 0 1 8.5 3.6 8.8 8.8 0 1 0 20.4 15.5Z"/>,
   sun: <><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M19 5l-1.5 1.5m-11 11L5 19"/></>,

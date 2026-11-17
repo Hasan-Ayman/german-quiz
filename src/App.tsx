@@ -6,7 +6,8 @@ import { loadPersonalDataset, savePersonalDataset } from './personal-storage'
 import { useAppUpdate } from './pwa'
 import { VocabularyFile } from './VocabularyFile'
 import { QuizFilters } from './QuizFilters'
-import { StudyPage } from './StudyPage'
+import { UnifiedPractice, type PracticeScreen } from './UnifiedPractice'
+import { loadPracticePreferences, levelMatches, type Scope } from './practice'
 import { grammarTypes, isGrammarMode } from './question-types'
 import { feedbackExamples, isLevel, isReliability, levels, type ExampleSentence, type Level, type PilotEntry } from './pilot'
 import {
@@ -34,11 +35,13 @@ function modeDetails(mode: Mode) {
   return { ...style, name, instruction }
 }
 
-type Screen = 'home' | 'quiz' | 'results' | 'review' | 'vocabulary' | 'study'
+type Screen = PracticeScreen | 'quiz' | 'results' | 'review' | 'vocabulary'
 
 function readScreen(): Screen {
   const name = window.location.hash.slice(2)
-  return name === 'quiz' || name === 'results' || name === 'review' || name === 'vocabulary' || name === 'study' ? name : 'home'
+  if (name === 'study') return 'home'
+  return name === 'quiz' || name === 'results' || name === 'review' || name === 'vocabulary' ||
+    name === 'settings' || name === 'chapters' || name === 'progress' || name === 'practice' ? name : 'home'
 }
 
 function subscribeScreen(callback: () => void) {
@@ -388,12 +391,12 @@ function Review({ attempt, retry }: { attempt: Attempt; retry: () => void }) {
   )
 }
 
-function VocabularyReview({ bank, settings }: { bank: PersonalQuiz; settings: QuizSettings }) {
+function VocabularyReview({ bank, scope, reliability }: { bank: PersonalQuiz; scope: Scope; reliability: QuizSettings['reliability'] }) {
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
   const entries = bank.dataset.entries.filter(entry =>
-    (settings.level === 'A2' || entry.levels.includes('A1')) &&
-    (settings.reliability === 'with-automatic' || entry.vocabularyStatus === 'reviewed') &&
+    entry.levels.some(level => levelMatches(scope, level)) &&
+    (reliability === 'with-automatic' || entry.vocabularyStatus === 'reviewed') &&
     [entry.german, ...entry.arabic_translations].some(text =>
       text.normalize('NFC').toLocaleLowerCase().includes(query.trim().normalize('NFC').toLocaleLowerCase())))
   const pageSize = 12
@@ -401,7 +404,7 @@ function VocabularyReview({ bank, settings }: { bank: PersonalQuiz; settings: Qu
     <div className="page-top"><a className="back-link" href="#/"><Icon name="right" size={18} /> الرئيسية</a></div>
     <div className="panel review-heading">
       <div>
-        <h1 id="vocabulary-review-title" tabIndex={-1}>مراجعة المفردات</h1>
+        <h1 id="vocabulary-review-title" tabIndex={-1}>القاموس</h1>
         <label className="vocabulary-search">بحث بالعربية أو الألمانية
           <input type="search" dir="auto" value={query} onChange={event => { setQuery(event.target.value); setPage(0) }} />
         </label>
@@ -411,7 +414,8 @@ function VocabularyReview({ bank, settings }: { bank: PersonalQuiz; settings: Qu
     <ul className="mistakes">
       {entries.slice(page * pageSize, (page + 1) * pageSize).map(entry => <li className="mistake" key={entry.id}>
         <VocabularyDetail entry={entry} />
-        <EntryExamples entry={entry} level={settings.level} />
+        <EntryExamples entry={scope === 'A2' ? { ...entry, examples: entry.examples.filter(example => example.level === 'A2') } : entry}
+          level={scope === 'A1' ? 'A1' : 'A2'} />
       </li>)}
     </ul>
     {entries.length > pageSize && <div className="actions">
@@ -422,7 +426,7 @@ function VocabularyReview({ bank, settings }: { bank: PersonalQuiz; settings: Qu
   </section>
 }
 
-export function QuizApp({ bank, fileControls }: { bank: PersonalQuiz; fileControls?: ReactNode }) {
+export function QuizApp({ bank, fileControls, legacy = false }: { bank: PersonalQuiz; fileControls?: ReactNode; legacy?: boolean }) {
   const [settings, setSettings] = useState(() => loadQuizSettings(readLocal('quiz-settings'), bank.automaticAvailable))
   const [attempt, setAttempt] = useState(() => loadAttempt(readLocal('attempt'), bank.catalogs, bank.revision,
     bank.automaticAvailable ? { getCatalog: bank.getExpandedCatalog, revision: bank.revision } : undefined))
@@ -474,17 +478,21 @@ export function QuizApp({ bank, fileControls }: { bank: PersonalQuiz; fileContro
     if (updated.finished) navigate('results')
   }
 
+  const preferences = screen === 'vocabulary' ? loadPracticePreferences(readLocal('practice-preferences'), readLocal('quiz-settings')) : null
+  if (legacy && screen === 'home') return <main className="site-container main-content" id="legacy-main">
+    <section className="panel practice-empty"><h1>لا توجد جلسة مفردات محفوظة</h1><a className="button primary" href="#/">افتح التدريب</a></section>
+  </main>
   return (
-    <main className={'site-container main-content screen-' + screen}>
+    <main className={'site-container main-content screen-' + screen} id={legacy ? 'legacy-main' : undefined}>
       {screen === 'home' && <>
         <Home bank={bank} attempt={attempt} settings={settings} updateSettings={setSettings} start={start} />
         {fileControls}
       </>}
       {screen === 'quiz' && attempt &&
         <QuizPanel attempt={attempt} select={id => setAttempt(current => current && answer(current, id))} advance={advance} />}
-      {screen === 'results' && attempt && <Results attempt={attempt} start={start} retry={retry} />}
+      {screen === 'results' && attempt && <Results attempt={attempt} start={legacy ? () => navigate('home') : start} retry={retry} />}
       {screen === 'review' && attempt && <Review attempt={attempt} retry={retry} />}
-      {screen === 'vocabulary' && <VocabularyReview bank={bank} settings={settings} />}
+      {preferences && <VocabularyReview bank={bank} scope={preferences.scope} reliability={preferences.reliability} />}
     </main>
   )
 }
@@ -529,38 +537,52 @@ export default function App() {
     setStorageFailed(false)
     setBank(nextBank)
     setImportSequence(value => value + 1)
-    navigate('home')
   }
   const fileControls = <VocabularyFile bank={bank} onImport={importFile} storageFailed={storageFailed} />
-  const themeLabel = theme === 'light' ? 'تفعيل الوضع الداكن' : 'تفعيل الوضع الفاتح'
+  const legacy = screen === 'quiz' || screen === 'results' || screen === 'review' || screen === 'vocabulary'
+  const tabs = [
+    { href: '#/', icon: 'grid', label: 'التدريب', active: screen === 'home' || screen === 'practice' || (legacy && screen !== 'vocabulary') },
+    { href: '#/chapters', icon: 'book', label: 'الدروس', active: screen === 'chapters' },
+    { href: '#/vocabulary', icon: 'list', label: 'القاموس', active: screen === 'vocabulary' },
+    { href: '#/progress', icon: 'progress', label: 'التقدّم', active: screen === 'progress' },
+  ] as const
 
   return (
     <div className="app-shell">
-      <header className="site-header">
+      <button type="button" className="skip-link" onClick={() => {
+        const main = document.querySelector<HTMLElement>('main:not([hidden]) h1, main:not([hidden]) h2')
+        main?.setAttribute('tabindex', '-1')
+        main?.focus()
+      }}>انتقل إلى المحتوى</button>
+      <header className="site-header unified-header">
         <div className="site-container header-inner">
-          <a href="#/" className="brand" aria-label="مفردات، الصفحة الرئيسية">
-            <span className="brand-mark"><Icon name="book" size={23} /></span>
-            <span><strong>مفردات</strong><small lang="de" dir="ltr">DEUTSCH QUIZ</small></span>
+          <a href="#/" className="brand" aria-label="German Quiz، الرئيسية">
+            <span className="brand-mark"><Icon name="book" size={22} /></span>
+            <span><strong lang="en" dir="ltr">German Quiz</strong><small>تعلّم الألمانية</small></span>
           </a>
-          <div className="site-tools">
-          <a className="study-link" href="#/study">مركز الدراسة</a>
-          <button className="theme-button" type="button" onClick={() => setTheme(value => value === 'light' ? 'dark' : 'light')}
-            aria-label={themeLabel} title={themeLabel}>
-            <Icon name={theme === 'light' ? 'moon' : 'sun'} size={21} />
-          </button>
-          </div>
+          <nav className="unified-nav" aria-label="التنقل الرئيسي">
+            {tabs.map(tab => <a key={tab.href} href={tab.href} aria-current={tab.active ? 'page' : undefined}>
+              <Icon name={tab.icon} size={18} /><span>{tab.label}</span></a>)}
+          </nav>
+          <a href="#/settings" className="theme-button" aria-label="الإعدادات" title="الإعدادات"
+            aria-current={screen === 'settings' ? 'page' : undefined}><Icon name="sliders" size={20} /></a>
         </div>
       </header>
       {applyUpdate && <aside className="site-container app-update" aria-label="تحديث التطبيق">
         <button type="button" className="button secondary" onClick={applyUpdate}>تثبيت تحديث التطبيق</button>
       </aside>}
-      {screen === 'study' ? <StudyPage quizBank={bank} /> : bank ? <QuizApp key={importSequence} bank={bank} fileControls={fileControls} />
-        : <main className="site-container main-content screen-home">
-          {loading ? <p role="status">جارٍ فتح مكتبة المفردات…</p> : fileControls}
-        </main>}
+      <UnifiedPractice screen={legacy ? null : screen} navigate={navigate} bank={bank} vocabularyLoading={loading}
+        vocabularyControls={fileControls} theme={theme} changeTheme={setTheme} />
+      {legacy && (bank ? <QuizApp key={importSequence} bank={bank} legacy /> :
+        <main className="site-container main-content">
+          {loading ? <p role="status">جارٍ فتح مكتبة المفردات…</p> : <section className="panel practice-empty">
+            <h1>استورد مفرداتك لفتح القاموس والاختبارات المحفوظة</h1>
+            <a className="button primary" href="#/settings">فتح إعدادات المحتوى</a>
+          </section>}
+        </main>)}
       <footer className="site-container site-footer">
-        <span>مفردات · تدريب الألمانية</span>
-        <bdi lang="de" dir="ltr">A1 / A2</bdi>
+        <span>German Quiz</span>
+        <bdi lang="de" dir="ltr">A1+ / A2+</bdi>
       </footer>
     </div>
   )

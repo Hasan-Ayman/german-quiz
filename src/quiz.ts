@@ -30,6 +30,7 @@ export interface Fact {
   exampleGerman?: string
   optionCount?: number
   chapters?: ChapterKey[]
+  sourcePages?: Partial<Record<ChapterKey, number>>
   correct: Choice
   distractors: Choice[]
 }

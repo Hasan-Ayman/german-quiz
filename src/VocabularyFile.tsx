@@ -31,11 +31,11 @@ export function VocabularyFile({ bank, onImport, storageFailed }: {
   return (
     <section className="panel vocabulary-file" aria-labelledby="vocabulary-title">
       {bank ? <h2 id="vocabulary-title">ملف المفردات الشخصي</h2>
-        : <h1 id="vocabulary-title">ابدأ باستيراد مفرداتك</h1>}
+        : <h2 id="vocabulary-title">ابدأ باستيراد مفرداتك</h2>}
       <p>{bank ? 'يمكنك تنزيل نسخة من مفرداتك ونقلها يدويًا إلى جهاز آخر.'
         : 'اختر ملف المفردات الشخصي بصيغة JSON لبدء التدريب. يُحفظ الملف داخل هذا المتصفح.'}</p>
       {bank && <p className="notice">
-        {format.format(bank.dataset.entries.length)} مفردة مستوردة
+        المفردات جاهزة · {format.format(bank.dataset.entries.length)} مفردة مستوردة
         {' · '}<bdi dir="ltr">A1</bdi> {format.format(bank.importedCounts.A1)}
         {' · '}<bdi dir="ltr">A2</bdi> {format.format(bank.importedCounts.A2)}
         {' · '}قد تنتمي المفردة إلى المستويين.

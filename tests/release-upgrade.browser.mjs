@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { join, resolve } from 'node:path'
 import { chromium } from 'playwright-core'
@@ -55,6 +55,31 @@ try {
   const format = new Intl.NumberFormat('ar-u-nu-arab')
   const personal = JSON.parse(await readFile(personalFile, 'utf8'))
   await page.getByText(format.format(personal.entries.length) + ' مفردة مستوردة', { exact: false }).waitFor()
+  const screenshots = process.env.GERMAN_QUIZ_SCREENSHOTS
+  async function capture(stage) {
+    if (!screenshots) return
+    await mkdir(screenshots, { recursive: true })
+    await page.evaluate(() => scrollTo(0, 0))
+    await page.screenshot({ path: join(screenshots, stage + '-mobile.png'), animations: 'disabled' })
+    await page.setViewportSize({ width: 1440, height: 980 })
+    const customization = page.locator('.activity-picker summary')
+    const didExpand = await customization.count() && await customization.locator('..').getAttribute('open') === null
+    if (didExpand) await customization.click()
+    await page.evaluate(() => scrollTo(0, 0))
+    await page.screenshot({ path: join(screenshots, stage + '-desktop.png'), animations: 'disabled' })
+    if (didExpand) await customization.click()
+    await page.setViewportSize({ width: 390, height: 844 })
+  }
+  await capture('before')
+  await page.getByRole('link', { name: 'مركز الدراسة' }).click()
+  await page.locator('#study-import').setInputFiles(studyFile)
+  await page.getByText('فصلًا محمّلًا', { exact: false }).waitFor()
+  await page.getByLabel('نوع التدريب', { exact: true }).selectOption('flashcard')
+  await page.getByRole('button', { name: 'ابدأ التدريب', exact: true }).click()
+  await page.getByRole('button', { name: 'اقلب البطاقة' }).click()
+  await page.getByRole('button', { name: 'أحتاج إلى مراجعتها' }).click()
+  await page.getByRole('status').filter({ hasText: 'بطاقة للمراجعة' }).waitFor()
+  await page.getByRole('link', { name: 'اختبار المفردات', exact: true }).first().click()
   await page.locator('select').nth(0).selectOption('A1')
   await page.locator('select').nth(1).selectOption('20')
   await page.locator('select').nth(2).selectOption('with-automatic')
@@ -79,14 +104,19 @@ try {
         database.close()
       }
     }
-    const local = Object.fromEntries(Object.keys(localStorage).filter(key => key.startsWith('german-quiz:'))
+    const local = Object.fromEntries(Object.keys(localStorage).filter(key => key.startsWith('german-quiz:') &&
+      key !== 'german-quiz:practice-preferences')
       .map(key => [key, localStorage.getItem(key)]))
     return { local, active: await read('german-quiz-personal', 'vocabulary', 'active'),
-      backup: await read('german-quiz-personal', 'vocabulary', 'backup-v1') }
+      backup: await read('german-quiz-personal', 'vocabulary', 'backup-v1'),
+      pack: await read('german-quiz-study', 'study', 'pack'),
+      progress: await read('german-quiz-study', 'study', 'progress') }
   })
   const before = await snapshot()
   assert.equal(before.active.entries.length, personal.entries.length)
   assert.equal(before.backup.version, 1)
+  assert.deepEqual(before.pack, pack)
+  assert.equal(before.progress.length, 1)
   assert(Object.values(before.local).some(value => value?.includes('"answers":[') && !value.includes('"answers":[]')))
   assert.equal(before.local['german-quiz:theme'], 'dark')
 
@@ -96,77 +126,44 @@ try {
   const reload = page.waitForEvent('load')
   await page.getByRole('button', { name: 'تثبيت تحديث التطبيق' }).click()
   await reload
-  await page.getByRole('link', { name: 'مركز الدراسة', exact: true }).waitFor()
+  await page.getByRole('link', { name: 'التدريب', exact: true }).waitFor()
   await page.getByRole('button', { name: 'السؤال التالي', exact: true }).waitFor()
   assert.deepEqual(await snapshot(), before)
-
   await context.setOffline(true)
   await page.reload()
   await page.getByRole('button', { name: 'السؤال التالي', exact: true }).waitFor()
   assert.deepEqual(await snapshot(), before)
-  await page.getByRole('link', { name: 'مركز الدراسة', exact: true }).click()
-  await page.getByText('استورد ملف حزمة الدراسة لعرض الفصول والأنشطة.', { exact: false }).waitFor()
-  await page.locator('#study-import').setInputFiles(studyFile)
-  await page.getByText(format.format(pack.chapters.length) + ' فصلًا محمّلًا', { exact: false }).waitFor()
-  await page.reload()
-  await page.getByText(format.format(pack.chapters.length) + ' فصلًا محمّلًا', { exact: false }).waitFor()
-  await page.locator('#study-import').setInputFiles({ name: 'broken.json', mimeType: 'application/json', buffer: Buffer.from('{}') })
-  await page.getByRole('alert').filter({ hasText: 'تعذّر استيراد الحزمة' }).waitFor()
-  await page.reload()
-  await page.getByText(format.format(pack.chapters.length) + ' فصلًا محمّلًا', { exact: false }).waitFor()
-  const storedPack = await page.evaluate(async () => {
-    const request = indexedDB.open('german-quiz-study', 1)
-    const database = await new Promise((resolve, reject) => {
-      request.onsuccess = () => resolve(request.result)
-      request.onerror = () => reject(request.error)
-    })
-    try {
-      return await new Promise((resolve, reject) => {
-        const request = database.transaction('study').objectStore('study').get('pack')
-        request.onsuccess = () => resolve(request.result)
-        request.onerror = () => reject(request.error)
-      })
-    } finally {
-      database.close()
-    }
-  })
-  assert.deepEqual(storedPack, pack)
 
-  for (const chapter of ['A1:1', 'A2:8']) {
-    await page.getByLabel('الفصل', { exact: true }).selectOption(chapter)
-    const lesson = pack.chapters.find(item => item.id === chapter)
-    await page.getByRole('heading', { name: lesson.title, exact: true }).waitFor()
-    const drill = pack.questions.find(item => item.chapter === chapter && item.type === 'reading')
-    await page.getByLabel('نوع التدريب', { exact: true }).selectOption('reading')
-    await page.getByRole('button', { name: 'ابدأ التدريب' }).click()
-    await page.getByRole('button', { name: drill.answers[0], exact: true }).click()
-    await page.getByRole('status').filter({ hasText: 'إجابة صحيحة' }).waitFor()
-    await page.getByRole('button', { name: 'العودة إلى الإعدادات' }).click()
-    await page.getByRole('button', { name: 'التدريب الحر', exact: true }).click()
-    await page.getByLabel('المستوى', { exact: true }).selectOption(chapter.split(':')[0])
-    await page.getByText('الفصول', { exact: true }).click()
-    await page.getByRole('checkbox', { name: new RegExp('^' + chapter + ' ·') }).check()
-    await page.getByRole('button', { name: 'ابدأ التدريب' }).click()
-    await page.getByRole('button', { name: drill.answers[0], exact: true }).click()
-    await page.getByRole('status').filter({ hasText: 'إجابة صحيحة' }).waitFor()
-    await page.getByRole('button', { name: 'العودة إلى الإعدادات' }).click()
-    await page.getByRole('button', { name: 'الدراسة حسب الفصل', exact: true }).click()
-  }
-  const variant = pack.questions.find(item => item.type === 'reading' && item.answers.length > 1)
-  if (variant) {
-    await page.getByLabel('الفصل', { exact: true }).selectOption(variant.chapter)
-    await page.getByLabel('نوع التدريب', { exact: true }).selectOption('reading')
-    await page.getByRole('button', { name: 'ابدأ التدريب' }).click()
-    await page.getByRole('button', { name: 'كتابة الإجابة' }).click()
-    await page.getByLabel('إجابتك').fill(variant.answers[1])
-    await page.getByRole('button', { name: 'تحقق من الإجابة' }).click()
-    await page.getByRole('status').filter({ hasText: 'إجابة صحيحة' }).waitFor()
-  }
+  await page.getByRole('link', { name: 'التدريب', exact: true }).click()
+  await page.getByRole('button', { name: 'ابدأ التدريب', exact: true }).waitFor()
+  assert(await page.getByRole('radio', { name: 'A1+', exact: true }).isChecked())
+  assert(await page.getByRole('radio', { name: '٢٠', exact: true }).isChecked())
+  await page.getByRole('link', { name: 'التقدّم', exact: true }).click()
+  await page.getByRole('button', { name: /^البطاقات المستحقّة/u }).waitFor()
+  await page.getByRole('link', { name: 'تابع اختبار المفردات المحفوظ', exact: true }).waitFor()
+  await page.getByRole('link', { name: 'الإعدادات', exact: true }).click()
+  await page.getByRole('button', { name: 'فاتح', exact: true }).click()
+  await page.getByRole('link', { name: 'التدريب', exact: true }).click()
+  await page.getByRole('radio', { name: 'A1+ & A2+', exact: true }).check()
+  await page.getByRole('radio', { name: '١٠', exact: true }).check()
+  await capture('after')
+
+  await page.setViewportSize({ width: 320, height: 700 })
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
-  assert.deepEqual(await snapshot(), before)
+  await page.locator('.chapter-picker summary').click()
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+  await page.keyboard.press('Tab')
+  assert.equal(await page.evaluate(() => document.activeElement.tagName), 'BUTTON')
+  await page.getByRole('button', { name: 'مسح التحديد', exact: true }).click()
+  assert(await page.getByRole('button', { name: 'ابدأ التدريب', exact: true }).isDisabled())
+  await page.getByRole('button', { name: 'تحديد الكل', exact: true }).click()
+  assert.equal(await page.locator('.chapter-picker input:checked').count(), 24)
+
+  await page.evaluate(() => { location.hash = '/study' })
+  await page.getByRole('heading', { name: 'ماذا تريد أن تتدرّب عليه؟' }).waitFor()
   assert.deepEqual(foreign, [])
   assert(requests.every(request => request.method === 'GET'))
-  console.log('Same-origin deployed-shell upgrade preserved the full v2 library, v1 backup, theme, settings and answered quiz. Offline study import, malformed rollback, refresh and both study modes at both levels passed.')
+  console.log('Same-origin offline upgrade preserved v1 backup, v2 vocabulary, all 24 study chapters, recorded study and vocabulary progress, and legacy bookmarks.')
 } finally {
   await browser?.close()
   server.close()

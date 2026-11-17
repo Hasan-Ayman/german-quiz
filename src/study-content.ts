@@ -1,4 +1,4 @@
-import { isLevel, type Level, type PartOfSpeech } from './pilot.ts'
+import { isLevel, type ExampleSentence, type Level, type PartOfSpeech } from './pilot.ts'
 
 export const studyTypes = ['cloze', 'flashcard', 'verb', 'grammar', 'reading',
   'order', 'case', 'error', 'transform', 'writing', 'vocabulary'] as const
@@ -51,6 +51,8 @@ export interface StudyQuestion extends Omit<StudyLesson, 'title' | 'origin' | 'v
   passageArabic?: string
   model?: string
   errorIndex?: number
+  hint?: { lang: 'de' | 'ar'; text: string }
+  examples?: ExampleSentence[]
   practiceKey?: string
   part?: PartOfSpeech
 }

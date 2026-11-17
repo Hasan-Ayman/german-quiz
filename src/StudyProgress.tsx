@@ -8,30 +8,13 @@ const number = new Intl.NumberFormat('ar-u-nu-arab')
 const percent = new Intl.NumberFormat('ar-u-nu-arab', { style: 'percent', maximumFractionDigits: 0 })
 
 export function StudyProgress({ pack, additional, events, update, retry }: {
-  pack: StudyPack; additional: StudyQuestion[]; events: StudyEvent[]; update: (events: StudyEvent[]) => void; retry: (items: StudyQuestion[]) => void
+  pack: StudyPack | null; additional: StudyQuestion[]; events: StudyEvent[]; update: (events: StudyEvent[]) => void; retry: (items: StudyQuestion[]) => void
 }) {
-  const [status, setStatus] = useState('')
-  const [error, setError] = useState('')
   const stats = studyStats(events)
   const schedule = reviewSchedule(events)
-  const retryable = [...pack.questions, ...additional].filter(item => schedule.get(item.id)?.needsReview)
-  const byLesson = pack.lessons.map(lesson => ({ lesson, stats: studyStats(events.filter(event => event.topic === lesson.topic)) }))
+  const retryable = [...(pack?.questions ?? []), ...additional].filter(item => schedule.get(item.id)?.needsReview)
+  const byLesson = (pack?.lessons ?? []).map(lesson => ({ lesson, stats: studyStats(events.filter(event => event.topic === lesson.topic)) }))
     .filter(item => item.stats.completed > 0)
-
-  async function restore(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.currentTarget.files?.[0]
-    event.currentTarget.value = ''
-    if (!file) return
-    setStatus('')
-    setError('')
-    try {
-      const result = await saveStudyProgress(await readProgressFile(file))
-      update(result)
-      setStatus('تم دمج سجلات التقدم المحفوظة.')
-    } catch {
-      setError('تعذّر استعادة التقدم. تحقّق من الملف؛ ظلَّ التقدم الحالي محفوظًا.')
-    }
-  }
 
   return <section className="panel study-flow" aria-label="لوحة التقدم">
     <h2>لوحة التقدم</h2>
@@ -53,18 +36,40 @@ export function StudyProgress({ pack, additional, events, update, retry }: {
           {activity.attempts > 0 && ' · ' + percent.format(activity.correct / activity.attempts)}</li> : null
       })}</ul>
     </details>}
-    <details>
+  </section>
+}
+
+export function StudyBackup({ pack, events, update }: {
+  pack: StudyPack | null; events: StudyEvent[]; update: (events: StudyEvent[]) => void
+}) {
+  const [status, setStatus] = useState('')
+  const [error, setError] = useState('')
+  async function restore(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0]
+    event.currentTarget.value = ''
+    if (!file) return
+    setStatus('')
+    setError('')
+    try {
+      const result = await saveStudyProgress(await readProgressFile(file))
+      update(result)
+      setStatus('تم دمج سجلات التقدم المحفوظة.')
+    } catch {
+      setError('تعذّر استعادة التقدم. تحقّق من الملف؛ ظلَّ التقدم الحالي محفوظًا.')
+    }
+  }
+
+  return <details className="settings-section">
       <summary>النسخ الاحتياطي والاستعادة</summary>
       <div className="study-flow">
         <button className="button secondary" type="button" onClick={() =>
           downloadStudyJson('german-quiz-study-progress-private.json', encodeProgress(events))}>تنزيل التقدم</button>
-        <button className="button secondary" type="button" onClick={() =>
-          downloadStudyJson('german-quiz-study-private.json', JSON.stringify(pack))}>تنزيل حزمة الدراسة</button>
+        {pack && <button className="button secondary" type="button" onClick={() =>
+          downloadStudyJson('german-quiz-study-private.json', JSON.stringify(pack))}>تنزيل حزمة الدراسة</button>}
         <label htmlFor="study-progress-file">استعادة أو دمج التقدم</label>
         <input id="study-progress-file" type="file" accept=".json,application/json" onChange={restore} />
         {status && <p role="status">{status}</p>}
         {error && <p role="alert">{error}</p>}
       </div>
     </details>
-  </section>
 }
