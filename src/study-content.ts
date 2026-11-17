@@ -50,6 +50,7 @@ export interface StudyQuestion extends Omit<StudyLesson, 'title' | 'origin' | 'v
   tokens?: string[]
   passageArabic?: string
   model?: string
+  errorIndex?: number
 }
 
 export interface StudyPack {
@@ -166,6 +167,10 @@ export function validateStudyPack(value: unknown): StudyPack {
     }
     if (type === 'order' && (!textList(tokens) || tokens.length < 2 || tokens.length > 12 ||
         !keys(answers).has(normalizeStudyAnswer(tokens.join(' '))))) throw new Error('Invalid word-order item')
+    if (question.errorIndex !== undefined && (type !== 'error' || typeof question.errorIndex !== 'number' ||
+        !Number.isInteger(question.errorIndex) || question.errorIndex < 0 || question.errorIndex >= (prompt as string).length)) {
+      throw new Error('Invalid error location')
+    }
     ids.add(id)
   }
   return value as StudyPack

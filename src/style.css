@@ -504,3 +504,5 @@ progress::-moz-progress-bar { background: var(--green); border-radius: 50px; }
 
 .study-prompt { padding: 1rem; border-radius: .6rem; background: var(--surface-soft); border: 1px solid var(--line); font-size: 1.1rem; }
 .study-feedback { border-inline-start: 4px solid var(--green); padding-inline-start: 1rem; }
+
+.study-word-bank { display: flex; flex-wrap: wrap; gap: .5rem; min-height: 2rem; }

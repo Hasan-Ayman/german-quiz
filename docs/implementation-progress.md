@@ -43,3 +43,8 @@ Phase 1 inventories the authoritative source pages and pairs printed chapter bou
 
 - Connected selectable sessions, bilingual immediate feedback and typed or multiple-choice completion. Verb exercises use checked source-linked material. Seven directions and form views for flashcards use the existing private bank or the authored sentence-card pool.
 - Tests: 57 passed with the real files, 10 baseline-only fixture tests skipped. Production build and offline browser tests passed for a typed answer, both text directions and a revealed flashcard.
+
+## Phase 6 — Grammar and sentence editing
+
+- Added active grammar and case exercises, tapped word ordering with a typed alternative, wrong-word identification and correction, and sentence transformation in both answer formats.
+- Tests: 57 passed with real fixtures, 10 baseline-only fixture tests skipped. Production build and offline browser flows passed for ordering and correcting a real item.

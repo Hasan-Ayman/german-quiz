@@ -7,7 +7,7 @@ import type { PersonalDataset } from './personal-data'
 import { flashcardModes, vocabularyFlashcards, type FlashcardMode } from './study-flashcards'
 import { StudyExercise } from './StudyExercise'
 
-const interactive = new Set<StudyType>(['flashcard', 'cloze', 'verb'])
+const interactive = new Set<StudyType>(['flashcard', 'cloze', 'verb', 'grammar', 'case', 'order', 'error', 'transform'])
 
 const names: Record<StudyType, string> = {
   cloze: 'إكمال الجمل', flashcard: 'بطاقات المفردات', verb: 'تصريف الأفعال', grammar: 'تحديات القواعد',

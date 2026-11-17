@@ -15,7 +15,11 @@ function Question({ item, next, onResult }: {
   const [response, setResponse] = useState('')
   const [marked, setMarked] = useState<StudyResult | null>(null)
   const [revealed, setRevealed] = useState(false)
-  const [typed, setTyped] = useState(!item.choices)
+  const [typed, setTyped] = useState(!item.choices && !item.tokens)
+  const [foundError, setFoundError] = useState(item.errorIndex === undefined)
+  const [locationAttempt, setLocationAttempt] = useState(false)
+  const [tokens] = useState(() => shuffled((item.tokens ?? []).map((text, i) => ({ text, i }))))
+  const [ordered, setOrdered] = useState<number[]>([])
   const [choices] = useState(() => shuffled(item.choices ?? []))
   const answerLanguage = item.answerLanguage ?? (item.type === 'reading' || item.type === 'flashcard' ? 'ar' : 'de')
 
@@ -36,14 +40,23 @@ function Question({ item, next, onResult }: {
 
   return <section className="panel study-flow" aria-label="نشاط الدراسة">
     <h2>{item.instruction}</h2>
-    {item.prompt && <p className="study-prompt"><LocalText text={item.prompt} lang={item.promptLanguage} /></p>}
-    {!marked && (item.type === 'flashcard'
+    {!foundError && !marked ? <div className="study-flow">
+      <p>حدّد الكلمة التي تحتاج إلى تصحيح.</p>
+      <div className="study-word-bank" lang="de" dir="ltr">{[...item.prompt.matchAll(/\S+/gu)].map(word =>
+        <button className="button secondary" type="button" key={word.index} onClick={() => {
+          setLocationAttempt(true)
+          setFoundError(word.index <= item.errorIndex! && item.errorIndex! < word.index + word[0].length)
+        }}>{word[0]}</button>)}</div>
+      {locationAttempt && <p role="status">راجع القاعدة وحاول تحديد الكلمة مرة أخرى.</p>}
+      <button type="button" className="button secondary" onClick={() => setFoundError(true)}>الانتقال إلى التصحيح</button>
+    </div> : item.prompt && <p className="study-prompt"><LocalText text={item.prompt} lang={item.promptLanguage} /></p>}
+    {!marked && foundError && (item.type === 'flashcard'
       ? revealed ? <><p><LocalText text={item.answers.join(' / ')} lang={answerLanguage} /></p>
         <div className="study-actions"><button className="button primary" onClick={() => mark('known')}>أعرفها</button>
           <button className="button secondary" onClick={() => mark('missed')}>أحتاج إلى مراجعتها</button></div></>
         : <button className="button secondary" onClick={() => setRevealed(true)}>اقلب البطاقة</button>
       : <>
-        {item.choices && <button className="button secondary" onClick={() => setTyped(value => !value)}>
+        {(item.choices || item.tokens) && <button className="button secondary" onClick={() => setTyped(value => !value)}>
           {typed ? 'إظهار الخيارات' : 'كتابة الإجابة'}
         </button>}
         {typed ? <form className="study-flow" onSubmit={submit}>
@@ -51,7 +64,18 @@ function Question({ item, next, onResult }: {
           <input id="study-answer" type="text" lang={answerLanguage} dir={answerLanguage === 'de' ? 'ltr' : 'rtl'}
             autoComplete="off" spellCheck={false} value={response} onChange={event => setResponse(event.target.value)} />
           <button className="button primary" disabled={!response.trim()}>تحقق من الإجابة</button>
-        </form> : <div className="study-flow">{choices.map(choice => <button type="button" key={choice}
+        </form> : item.tokens ? <div className="study-flow">
+          <div className="study-word-bank" dir="ltr" lang="de" aria-label="الترتيب المختار">
+            {ordered.map((index, position) => <button key={index} className="button secondary"
+              onClick={() => setOrdered(items => items.filter((_, i) => i !== position))}>{item.tokens![index]}</button>)}
+          </div>
+          <div className="study-word-bank" dir="ltr" lang="de" aria-label="المجموعات المتاحة">
+            {tokens.filter(token => !ordered.includes(token.i)).map(token => <button key={token.i} className="button secondary"
+              onClick={() => setOrdered(items => [...items, token.i])}>{token.text}</button>)}
+          </div>
+          <button type="button" className="button primary" disabled={ordered.length !== item.tokens.length}
+            onClick={() => grade(ordered.map(index => item.tokens![index]).join(' '))}>تحقق من الإجابة</button>
+        </div> : <div className="study-flow">{choices.map(choice => <button type="button" key={choice}
           className="button secondary" onClick={() => grade(choice)}><LocalText text={choice} lang={answerLanguage} /></button>)}</div>}
       </>)}
     {marked && <div className="study-flow study-feedback" role="status">

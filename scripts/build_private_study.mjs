@@ -43,7 +43,8 @@ for (const [chapter, topicIndex, kind, title, explanation, before, answer, after
   add('cloze', { prompt: before + '____' + after, instruction: title, answers: [answer], choices: [answer, ...wrong] })
   add(kind, { prompt: before + '____' + after, instruction: title, answers: [answer], choices: [answer, ...wrong] })
   add('flashcard', { prompt: target, instruction: 'استحضر المعنى بالعربية ثم اقلب البطاقة.', answers: [translation] })
-  add('error', { prompt: before + wrong[0] + after, instruction: 'صحّح الجزء الخاطئ فقط. ' + title, answers: [answer] })
+  add('error', { prompt: before + wrong[0] + after, instruction: 'صحّح الجزء الخاطئ. ' + title,
+    answers: [target, answer], choices: [target, ...wrong.map(option => before + option + after)], errorIndex: before.length })
   const passage = target + ' ' + second
   add('reading', { prompt: passage, instruction: readingPrompt, answers: [readingAnswer], choices: correctReading,
     passageArabic: translation + ' ' + secondArabic,
@@ -59,7 +60,7 @@ for (const [chapter, topicIndex, kind, title, explanation, before, answer, after
   if (related?.transform) {
     const [prompt, instruction, answers] = related.transform
     assert(unique(answers) && answers.includes(target))
-    add('transform', { prompt, instruction, answers })
+    add('transform', { prompt, instruction, answers, choices: [target, ...wrong.map(option => before + option + after)] })
   }
 }
 const sources = curriculum.sources.map(({ id, pages, sha256 }) => ({ id, pages, sha256 }))
