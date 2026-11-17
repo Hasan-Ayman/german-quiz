@@ -60,3 +60,10 @@ Phase 1 inventories the authoritative source pages and pairs printed chapter bou
 - Added local activity history, chapter completion, grammar practice indicators, a mistake notebook, scheduled review and chapter or cumulative practice assessments. The review intervals are 1, 3, 7, 14 and 30 days after consecutive successes, and a miss makes the item due immediately.
 - Progress backup imports merge by activity ID. Conflicts and malformed files abort without overwriting existing study progress. Private curriculum and progress also export separately.
 - Tests: 59 passed with real fixtures, 10 baseline-only fixtures skipped. Production build, offline backup and restore, a rejected import, and a chapter assessment passed in the browser.
+
+## Phase 9 — Complete curriculum integration
+
+- Added a checked bilingual lesson and practice for all 90 indexed grammar topics. Writing tasks have individually matched models. Every chapter has original reading and writing material.
+- The integrated pack has 233 activities, including 185 scored items. With the expanded real v2 bank selected, study can also use 4,908 safe vocabulary/verb facts. The 31 legacy quiz modes are available on the original quiz screen.
+- Mixed 10-item assessments worked for all 24 chapters and three seeds per chapter. Existing vocabulary files and IndexedDB data are unchanged. Word-type and practice-depth filters and rule-specific follow-up practice are available.
+- Tests: 60 passed with real fixtures in the release checkout, 10 baseline-only fixtures skipped. Production build and offline end-to-end checks passed.

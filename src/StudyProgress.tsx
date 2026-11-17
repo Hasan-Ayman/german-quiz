@@ -2,18 +2,19 @@ import { useState, type ChangeEvent } from 'react'
 import { downloadStudyJson, encodeProgress, readProgressFile, reviewSchedule, saveStudyProgress,
   studyStats, type StudyEvent } from './study-progress'
 import type { StudyPack, StudyQuestion } from './study-content'
+import { studyTypeLabels } from './study-labels'
 
 const number = new Intl.NumberFormat('ar-u-nu-arab')
 const percent = new Intl.NumberFormat('ar-u-nu-arab', { style: 'percent', maximumFractionDigits: 0 })
 
-export function StudyProgress({ pack, events, update, retry }: {
-  pack: StudyPack; events: StudyEvent[]; update: (events: StudyEvent[]) => void; retry: (items: StudyQuestion[]) => void
+export function StudyProgress({ pack, additional, events, update, retry }: {
+  pack: StudyPack; additional: StudyQuestion[]; events: StudyEvent[]; update: (events: StudyEvent[]) => void; retry: (items: StudyQuestion[]) => void
 }) {
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
   const stats = studyStats(events)
   const schedule = reviewSchedule(events)
-  const retryable = pack.questions.filter(item => schedule.get(item.id)?.needsReview)
+  const retryable = [...pack.questions, ...additional].filter(item => schedule.get(item.id)?.needsReview)
   const byLesson = pack.lessons.map(lesson => ({ lesson, stats: studyStats(events.filter(event => event.topic === lesson.topic)) }))
     .filter(item => item.stats.completed > 0)
 
@@ -44,6 +45,14 @@ export function StudyProgress({ pack, events, update, retry }: {
       </li>)}</ul> : <p>ستظهر النتائج هنا بعد التدريب.</p>}
       {retryable.length > 0 && <button className="button secondary" type="button" onClick={() => retry(retryable)}>أعد تدريب الأخطاء</button>}
     </details>
+    {events.length > 0 && <details>
+      <summary>الأداء حسب نوع التمرين</summary>
+      <ul>{(Object.keys(studyTypeLabels) as StudyQuestion['type'][]).map(type => {
+        const activity = studyStats(events.filter(event => event.type === type))
+        return activity.completed > 0 ? <li key={type}>{studyTypeLabels[type]} · {number.format(activity.completed)} نشاط
+          {activity.attempts > 0 && ' · ' + percent.format(activity.correct / activity.attempts)}</li> : null
+      })}</ul>
+    </details>}
     <details>
       <summary>النسخ الاحتياطي والاستعادة</summary>
       <div className="study-flow">

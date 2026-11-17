@@ -65,7 +65,7 @@ export function vocabularyFlashcards(dataset: PersonalDataset, filter: StudyFilt
         answerLanguage = 'de'
       }
     }
-    cards.push({ id: 'card:' + mode + ':' + entry.id, type: 'flashcard', chapter, topic: '',
+    cards.push({ id: 'card:' + mode + ':' + entry.id, type: 'flashcard', chapter, topic: '', part: entry.part_of_speech,
       source: { document: (ref.level.toLowerCase() + '-vocab') as StudyKind, page: ref.page },
       origin: 'vocabulary', verification: entry.vocabularyStatus === 'reviewed' ? 'reviewed' : 'automated_checked',
       prompt, promptLanguage, answerLanguage, answers, instruction: flashcardModes[mode],

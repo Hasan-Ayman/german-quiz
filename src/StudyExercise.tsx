@@ -3,15 +3,16 @@ import { checkStudyAnswer, shuffled } from './study-engine'
 import type { StudyQuestion } from './study-content'
 import { StudySpeech } from './StudySpeech'
 
-const number = new Intl.NumberFormat('ar-u-nu-arab')
 import type { StudyResult } from './study-progress'
+
+const number = new Intl.NumberFormat('ar-u-nu-arab')
 
 function LocalText({ text, lang = 'de' }: { text: string; lang?: 'de' | 'ar' }) {
   return <bdi lang={lang} dir={lang === 'ar' ? 'rtl' : 'ltr'}>{text}</bdi>
 }
 
-function Question({ item, next, onResult }: {
-  item: StudyQuestion; next: () => void; onResult: (result: StudyResult) => void
+function Question({ item, next, onResult, onRule }: {
+  item: StudyQuestion; next: () => void; onResult: (result: StudyResult) => void; onRule?: () => void
 }) {
   const [response, setResponse] = useState('')
   const [marked, setMarked] = useState<StudyResult | null>(null)
@@ -109,13 +110,14 @@ function Question({ item, next, onResult }: {
         <p lang="ar" dir="rtl">{item.passageArabic}</p></details>}
       {item.type === 'reading' && <StudySpeech german={item.prompt} />}
       <p className="study-source">المصدر <bdi dir="ltr">{item.source.document}</bdi> · صفحة PDF {number.format(item.source.page)}</p>
+      {item.topic && onRule && <button type="button" className="button secondary" onClick={onRule}>تدرّب على هذه القاعدة</button>}
       <button type="button" className="button primary" onClick={next}>النشاط التالي</button>
     </div>}
   </section>
 }
 
-export function StudyExercise({ items, close, onResult }: {
-  items: StudyQuestion[]; close: () => void; onResult?: (question: StudyQuestion, result: StudyResult) => void
+export function StudyExercise({ items, close, onResult, onRule }: {
+  items: StudyQuestion[]; close: () => void; onResult?: (question: StudyQuestion, result: StudyResult) => void; onRule?: (question: StudyQuestion) => void
 }) {
   const [index, setIndex] = useState(0)
   const [results, setResults] = useState<StudyResult[]>([])
@@ -126,7 +128,7 @@ export function StudyExercise({ items, close, onResult }: {
       <p>النشاط {number.format(Math.min(index + 1, items.length))} من {number.format(items.length)}</p>
       <button className="button secondary" type="button" onClick={close}>العودة إلى الإعدادات</button>
     </div>
-    {item ? <Question key={item.id} item={item} next={() => setIndex(value => value + 1)} onResult={result => {
+    {item ? <Question key={item.id} item={item} onRule={onRule ? () => onRule(item) : undefined} next={() => setIndex(value => value + 1)} onResult={result => {
       setResults(values => [...values, result])
       onResult?.(item, result)
     }} /> : <section className="panel study-flow">

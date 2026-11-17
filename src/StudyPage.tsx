@@ -1,22 +1,20 @@
-import { useEffect, useState, type ChangeEvent } from 'react'
+import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { readStudyFile, studyTypes, validateStudyPack, type StudyChapter, type StudyPack, type StudyQuestion, type StudyType } from './study-content'
-import { studyPool, studyRound, type StudyFilter } from './study-engine'
+import { studyAssessment, studyPool, studyRound, type StudyFilter } from './study-engine'
 import { loadStudyPack, saveStudyPack } from './study-storage'
 
-import type { PersonalDataset } from './personal-data'
+import type { PersonalQuiz } from './personal-quiz'
+import { studyVocabularyQuestions } from './study-vocabulary'
 import { flashcardModes, vocabularyFlashcards, type FlashcardMode } from './study-flashcards'
 import { StudyExercise } from './StudyExercise'
 
 import { StudyProgress } from './StudyProgress'
+import { studyTypeLabels } from './study-labels'
 import { loadStudyProgress, makeStudyEvent, reviewSchedule, saveStudyProgress, studyStats, type StudyEvent, type StudyResult } from './study-progress'
 
-const interactive = new Set<StudyType>(['flashcard', 'cloze', 'verb', 'grammar', 'case', 'order', 'error', 'transform', 'reading', 'writing'])
+const interactive = new Set<StudyType>(['flashcard', 'cloze', 'verb', 'grammar', 'case', 'order', 'error', 'transform', 'reading', 'writing', 'vocabulary'])
 
-const names: Record<StudyType, string> = {
-  cloze: 'إكمال الجمل', flashcard: 'بطاقات المفردات', verb: 'تصريف الأفعال', grammar: 'تحديات القواعد',
-  reading: 'فهم المقروء', order: 'ترتيب الجملة', case: 'الحالات الإعرابية', error: 'تصحيح الأخطاء',
-  transform: 'تحويل الجملة', writing: 'التعبير الكتابي',
-}
+
 const number = new Intl.NumberFormat('ar-u-nu-arab')
 
 function ChapterOverview({ chapter, pack, events }: { chapter: StudyChapter; pack: StudyPack; events: StudyEvent[] }) {
@@ -56,7 +54,8 @@ function ChapterOverview({ chapter, pack, events }: { chapter: StudyChapter; pac
   </section>
 }
 
-export function StudyPage({ vocabulary }: { vocabulary?: PersonalDataset }) {
+export function StudyPage({ quizBank }: { quizBank: PersonalQuiz | null }) {
+  const vocabulary = quizBank?.dataset
   const [pack, setPack] = useState<StudyPack | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -73,6 +72,8 @@ export function StudyPage({ vocabulary }: { vocabulary?: PersonalDataset }) {
   const [sessionKey, setSessionKey] = useState(0)
   const [events, setEvents] = useState<StudyEvent[]>([])
   const [focus, setFocus] = useState('all')
+  const [difficulty, setDifficulty] = useState('all')
+  const [part, setPart] = useState('all')
 
   useEffect(() => {
     let active = true
@@ -123,16 +124,23 @@ export function StudyPage({ vocabulary }: { vocabulary?: PersonalDataset }) {
   const chapter = pack?.chapters.find(chapter => chapter.id === chapterId)
   const scope = view === 'chapter' ? chapter ? [chapter.id] : [] : selected
   const filter = { level: view === 'chapter' ? 'all' as const : level, chapters: scope, type, topic }
+  const vocabularyItems = useMemo(() => quizBank && pack ? studyVocabularyQuestions(quizBank,
+    { level: view === 'chapter' ? 'all' : level, chapters: view === 'chapter' ? [chapterId] : selected, type: 'all' }, automatic) : [],
+  [quizBank, pack, view, level, chapterId, selected, automatic])
   const fromPack = pack ? studyPool(pack, filter) : []
+  const available = topic ? [] : vocabularyItems.filter(item => type === 'all' || type === item.type)
   const pool = type === 'flashcard' && vocabulary && !topic
-    ? vocabularyFlashcards(vocabulary, filter, flashcardMode, automatic) : fromPack
+    ? vocabularyFlashcards(vocabulary, filter, flashcardMode, automatic) : [...fromPack, ...available]
   const schedule = reviewSchedule(events)
   const practiced = new Set(events.map(item => item.questionId))
-  const playable = pool.filter(item => interactive.has(item.type) && (view === 'chapter' || focus === 'all' ||
+  const applied = (item: StudyQuestion) => ['order', 'reading', 'writing', 'error', 'transform'].includes(item.type)
+  const playable = pool.filter(item => interactive.has(item.type) &&
+    (view === 'chapter' || part === 'all' || item.part === part) &&
+    (view === 'chapter' || difficulty === 'all' || (difficulty === 'applied') === applied(item)) && (view === 'chapter' || focus === 'all' ||
     (focus === 'new' && !practiced.has(item.id)) || (focus === 'missed' && schedule.get(item.id)?.needsReview) ||
     (focus === 'due' && (schedule.get(item.id)?.due ?? Infinity) <= Date.now())))
   const assessment = pack ? studyPool(pack, { ...filter, type: 'all', topic: '' })
-    .filter(item => item.type !== 'writing' && item.type !== 'flashcard') : []
+    .filter(item => item.type !== 'writing' && item.type !== 'flashcard').concat(vocabularyItems) : []
   const completeChapters = pack?.chapters.filter(chapter => pack.questions
     .filter(item => item.chapter === chapter.id).every(item => practiced.has(item.id))).map(chapter => chapter.id) ?? []
   const shownChapters = pack?.chapters.filter(chapter => level === 'all' || chapter.id.startsWith(level + ':')) ?? []
@@ -148,7 +156,9 @@ export function StudyPage({ vocabulary }: { vocabulary?: PersonalDataset }) {
         : !loading && <p>استورد ملف حزمة الدراسة لعرض الفصول والأنشطة. ملف المفردات الحالي مستقل.</p>}
     </section>
 
-    {session.length > 0 ? <StudyExercise key={sessionKey} items={session} close={() => setSession([])} onResult={recordResult} /> : pack && <>
+    {session.length > 0 ? <StudyExercise key={sessionKey} items={session} close={() => setSession([])} onResult={recordResult} onRule={item => {
+      setSession([]); setView('chapter'); setChapterId(item.chapter); setType('all'); setTopic(item.topic)
+    }} /> : pack && <>
       <nav className="study-actions" aria-label="طريقة الدراسة">
         <button type="button" className="button secondary" aria-pressed={view === 'chapter'} onClick={() => { setView('chapter'); setTopic('') }}>الدراسة حسب الفصل</button>
         <button type="button" className="button secondary" aria-pressed={view === 'free'} onClick={() => { setView('free'); setTopic('') }}>التدريب الحر</button>
@@ -177,7 +187,7 @@ export function StudyPage({ vocabulary }: { vocabulary?: PersonalDataset }) {
           <label>نوع التدريب
             <select aria-label="نوع التدريب" value={type} onChange={event => setType(event.target.value as StudyFilter['type'])}>
               <option value="all">جميع الأنواع</option>
-              {studyTypes.map(key => <option key={key} value={key}>{names[key]}</option>)}
+              {studyTypes.map(key => <option key={key} value={key}>{studyTypeLabels[key]}</option>)}
             </select>
           </label>
           <label>موضوع القواعد
@@ -194,9 +204,9 @@ export function StudyPage({ vocabulary }: { vocabulary?: PersonalDataset }) {
                 {Object.entries(flashcardModes).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
               </select>
             </label>
-            <label><input type="checkbox" checked={automatic} onChange={event => setAutomatic(event.target.checked)} />
-              إدراج المفردات المتحقّق منها آليًا</label>
           </>}
+          {vocabulary && <label><input type="checkbox" checked={automatic} onChange={event => setAutomatic(event.target.checked)} />
+              إدراج المفردات المتحقّق منها آليًا</label>}
           <p role="status">{number.format(playable.length)} نشاطًا في النطاق المختار.</p>
           <label>عدد الأنشطة
             <select value={count} onChange={event => setCount(Number(event.target.value))}>
@@ -205,6 +215,18 @@ export function StudyPage({ vocabulary }: { vocabulary?: PersonalDataset }) {
           </label>
           <button className="button primary" type="button" disabled={!playable.length}
             onClick={() => begin(studyRound(playable, count))}>ابدأ التدريب</button>
+          {view === 'free' && <label>نوع الكلمة
+            <select aria-label="نوع الكلمة" value={part} onChange={event => setPart(event.target.value)}>
+              <option value="all">جميع أنواع الكلمات</option><option value="noun">اسم</option>
+              <option value="verb">فعل</option><option value="adjective">صفة</option><option value="adverb">ظرف</option>
+            </select>
+          </label>}
+          {view === 'free' && <label>درجة التطبيق
+            <select aria-label="درجة التطبيق" value={difficulty} onChange={event => setDifficulty(event.target.value)}>
+              <option value="all">جميع الدرجات</option><option value="direct">تدريب مباشر</option>
+              <option value="applied">تطبيق في جملة أو نص</option>
+            </select>
+          </label>}
           {view === 'free' && <label>حالة المراجعة
             <select aria-label="حالة المراجعة" value={focus} onChange={event => setFocus(event.target.value)}>
               <option value="all">جميع الأنشطة</option><option value="new">الأنشطة الجديدة</option>
@@ -215,15 +237,15 @@ export function StudyPage({ vocabulary }: { vocabulary?: PersonalDataset }) {
             onClick={() => { setLevel('all'); setSelected(completeChapters); setTopic('') }}>اختيار الفصول المكتملة</button>}
           <div className="study-actions">
             <button className="button secondary" type="button" disabled={!assessment.length}
-              onClick={() => begin(studyRound(assessment, count))}>ابدأ تقييم النطاق</button>
+              onClick={() => begin(studyAssessment(assessment, count))}>ابدأ تقييم النطاق</button>
             <button className="button secondary" type="button" disabled={!assessment.length}
-              onClick={() => begin(studyRound(assessment.filter(item => ['reading', 'cloze', 'verb', 'grammar', 'case'].includes(item.type)), count))}>
+              onClick={() => begin(studyAssessment(assessment.filter(item => ['reading', 'cloze', 'verb', 'grammar', 'case', 'vocabulary'].includes(item.type)), count))}>
               مراجعة بأسلوب الاختبار</button>
           </div>
         </section>
         {view === 'chapter' && chapter && <ChapterOverview chapter={chapter} pack={pack} events={events} />}
       </div>
-      <StudyProgress pack={pack} events={events} update={setEvents} retry={items => begin(studyRound(items, count))} />
+      <StudyProgress pack={pack} additional={vocabularyItems} events={events} update={setEvents} retry={items => begin(studyRound(items, count))} />
     </>}
   </main>
 }

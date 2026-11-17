@@ -8,6 +8,8 @@ describe.runIf(Boolean(folder))('editorially checked private practice material',
     const pack = JSON.parse(readFileSync(join(folder, 'german-quiz-study-private.json'), 'utf8'))
     expect(new Set(pack.questions.map(item => item.id)).size).toBe(pack.questions.length)
     expect(new Set(pack.lessons.map(item => item.chapter)).size).toBe(24)
+    expect(pack.lessons.map(item => item.topic).sort()).toEqual(pack.chapters.flatMap(chapter =>
+      chapter.grammar.map((_, index) => chapter.id + ':' + index)).sort())
     expect(pack.questions.filter(item => item.type === 'reading')).toHaveLength(24)
     expect(pack.questions.filter(item => item.type === 'writing')).toHaveLength(24)
     const offered = new Set(pack.questions.map(item => item.type))

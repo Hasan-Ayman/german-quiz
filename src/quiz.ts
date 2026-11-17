@@ -274,6 +274,14 @@ function question(fact: Fact, choices: Choice[]): Question {
   }
 }
 
+export function questionChoices(fact: Fact, catalog: Catalog, random: Random = Math.random): Choice[] {
+  const distractors = fact.optionCount
+    ? shuffle(fact.distractors, random).slice(0, (fact.optionCount ?? 3) - 1)
+    : fact.mode === 'article' ? fact.distractors : chooseThree(shuffle(fact.distractors, random), catalog.compatible)
+  if (!distractors) throw new Error('A fact lost its safe distractors.')
+  return shuffle([fact.correct, ...distractors], random)
+}
+
 export function makeQuiz(
   catalog: Catalog, random: Random = Math.random, count: QuestionCount = defaultQuestionCount,
 ): Question[] {
@@ -297,13 +305,7 @@ export function makeQuiz(
     if (!used.has(key(fact))) add(fact)
   }
 
-  return shuffle(selected, random).map(fact => {
-    const distractors = fact.optionCount
-      ? shuffle(fact.distractors, random).slice(0, (fact.optionCount ?? 3) - 1)
-      : fact.mode === 'article' ? fact.distractors : chooseThree(shuffle(fact.distractors, random), catalog.compatible)
-    if (!distractors) throw new Error('A fact lost its safe distractors.')
-    return question(fact, shuffle([fact.correct, ...distractors], random))
-  })
+  return shuffle(selected, random).map(fact => question(fact, questionChoices(fact, catalog, random)))
 }
 
 export function isCorrect(question: Question, selected: string) {

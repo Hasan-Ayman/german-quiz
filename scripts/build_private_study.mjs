@@ -13,6 +13,7 @@ const read = async name => JSON.parse(await readFile(resolve(folder, name), 'utf
 const curriculum = await read('curriculum-private.json')
 const rows = [...await read('reviewed-a1-material.json'), ...await read('reviewed-a2-material.json')]
 const variants = await read('reviewed-variants.json')
+const writingModels = await read('reviewed-writing-models.json')
 const chapters = curriculum.chapters
 const questions = []
 const lessons = []
@@ -49,7 +50,9 @@ for (const [chapter, topicIndex, kind, title, explanation, before, answer, after
   add('reading', { prompt: passage, instruction: readingPrompt, answers: [readingAnswer], choices: correctReading,
     passageArabic: translation + ' ' + secondArabic,
     explanation: secondArabic, german: second, arabic: secondArabic })
-  add('writing', { prompt: '', instruction: writing, answers: [], model: passage, passageArabic: translation + ' ' + secondArabic })
+  const [model, modelArabic] = writingModels[chapter] ?? []
+  assert(/\p{Script=Latin}/u.test(model) && /\p{Script=Arabic}/u.test(modelArabic), 'Missing reviewed writing model for ' + chapter)
+  add('writing', { prompt: '', instruction: writing, answers: [], model, passageArabic: modelArabic })
   const related = variants[chapter]
   if (related?.order) {
     assert(unique(related.order))
@@ -62,6 +65,20 @@ for (const [chapter, topicIndex, kind, title, explanation, before, answer, after
     assert(unique(answers) && answers.includes(target))
     add('transform', { prompt, instruction, answers, choices: [target, ...wrong.map(option => before + option + after)] })
   }
+}
+for (const [chapter, topicIndex, type, title, explanation, before, answer, after, wrong, arabic] of await read('reviewed-supplementary-material.json')) {
+  const record = chapters.find(item => item.id === chapter)
+  assert(record?.grammar[topicIndex] && ['grammar', 'verb', 'case'].includes(type))
+  const topic = chapter + ':' + topicIndex
+  assert(!lessons.some(item => item.topic === topic), 'Duplicate grammar topic')
+  assert(unique([answer, ...wrong]))
+  assert([title, explanation, arabic].every(value => /\p{Script=Arabic}/u.test(value)))
+  const german = before + answer + after
+  const material = { topic, chapter, explanation, german, arabic,
+    source: { document: record.source, page: record.overviewPage }, origin: 'authored', verification: 'editorial_checked' }
+  lessons.push({ ...material, title })
+  questions.push({ ...material, id: topic + ':practice', type, prompt: before + '____' + after,
+    instruction: title, answers: [answer], choices: [answer, ...wrong] })
 }
 const sources = curriculum.sources.map(({ id, pages, sha256 }) => ({ id, pages, sha256 }))
 const data = { format: 'german-quiz-study', version: 1, sources, chapters, lessons, questions }
