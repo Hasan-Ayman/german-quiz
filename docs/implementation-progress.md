@@ -20,3 +20,10 @@ Phase 1 inventories the authoritative source pages and pairs printed chapter bou
 - Added the source audit tool, curriculum checks, and public-safe coverage reports.
 - Tests: 53 passed in the release checkout with the full v2 file and source map, 10 older private-fixture tests ran during the Phase 0 baseline. Production build and browser regression passed.
 - Chapter-body OCR and candidate skill markers remain machine-extracted evidence. Phase 2 builds checked study material from reviewed source anchors.
+
+## Phase 2 — Private study material
+
+- Built the initial private pack from all 24 mapped textbook chapters. It contains 24 original bilingual grammar lessons and 167 authored activities, including 119 scored practice items, 24 reading tasks and 24 writing tasks. Reading and writing records are short original practice.
+- Authored material carries the actual chapter overview reference and a separate editorial-check status. Machine-extracted page text and unreviewed content remain in the private archive. The original v1/v2 files are unchanged.
+- Checks: 54 release-checkout tests passed with the real source and vocabulary files, 10 baseline-only snapshot tests skipped. Production build and existing browser regression passed.
+- The pack has one reviewed lesson per chapter. A comprehensive question bank for every indexed grammar topic still requires additional editorial coverage.
