@@ -134,3 +134,7 @@ Use the physical page number in the level JSON. Bounding boxes are measured from
 `automated_pass` means the row passed structural checks. `manually_verified` means a visual comparison to the source was recorded. The optional local `reports/review-decisions.json` maps each reviewed source ID to its `review_fingerprint` as `fingerprint` and the value `visually_compared_to_pdf` as `check`. A changed source PDF or extraction invalidates the corresponding fingerprint. Resolve flagged text against the source before approving a row.
 
 The combined records include per-mode quiz flags and the eligible Arabic prompts for reverse translation. A future multiple-choice generator should compare distractors with every accepted answer and discard options that overlap. For article questions, use the fixed choices der, die, and das.
+
+## Private four-source study center
+
+The local study upgrade supports an independent private study pack alongside the existing vocabulary library. See the [Arabic Windows and iPhone guide](docs/user-guide-ar.md), [implementation checkpoints](docs/implementation-progress.md), and [test report](docs/testing-report.md). Import the existing v2 vocabulary file and the study-pack file separately.

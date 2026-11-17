@@ -27,10 +27,10 @@ jobs:
           cache: npm
       - name: Require a content-free checkout
         run: |
-          for path in data source-pdfs reports private backups tmp public dist; do
+          for path in data source-pdfs reports private study-private backups tmp public dist; do
             test ! -e "$path"
           done
-          if git ls-files | grep -Ei '\.pdf$|(personal-vocabulary|complete-private|private-vocabulary|vocabulary-backup).*\.json$|\.backup\.json$'; then
+          if git ls-files | grep -Ei '\.pdf$|(personal-vocabulary|complete-private|private-vocabulary|vocabulary-backup|-private|reviewed-).*\.json$|\.backup\.json$'; then
             exit 1
           fi
       - run: npm ci

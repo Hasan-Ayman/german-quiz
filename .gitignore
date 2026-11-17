@@ -15,3 +15,6 @@
 *.backup.json
 *.[pP][dD][fF]
 __pycache__/
+/study-private/
+*-private*.json
+reviewed-*.json

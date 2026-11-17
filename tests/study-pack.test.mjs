@@ -26,4 +26,19 @@ describe.runIf(Boolean(folder))('editorially checked private practice material',
       if (item.tokens) expect(item.answers).toContain(item.tokens.join(' '))
     }
   })
+  it('audits German words against the private four-source corpus', () => {
+    const read = name => JSON.parse(readFileSync(join(folder, name), 'utf8'))
+    const inventory = read('page-inventory-private.json')
+    const pack = read('german-quiz-study-private.json')
+    const review = read('authored-lexical-review-private.json')
+    const words = text => text.normalize('NFC').toLocaleLowerCase('de').match(/\p{Script=Latin}+/gu) ?? []
+    const sourceWords = new Set(Object.values(inventory).flatMap(pages => pages.flatMap(page => words(page.text))))
+    const correct = pack.questions.flatMap(item => [item.german, item.type === 'writing' ? item.model :
+      item.type === 'reading' || item.type === 'transform' ? item.prompt : ''])
+    const vocabulary = new Set(correct.flatMap(words))
+    expect(vocabulary.size).toBe(review.total)
+    expect([...vocabulary].filter(word => !sourceWords.has(word)).sort()).toEqual(review.derived.map(row => row.form).sort())
+    expect(review.derived.every(row => inventory[row.source.document][row.source.page - 1].hasText)).toBe(true)
+  })
+
 })

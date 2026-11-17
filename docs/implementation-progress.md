@@ -67,3 +67,9 @@ Phase 1 inventories the authoritative source pages and pairs printed chapter bou
 - The integrated pack has 233 activities, including 185 scored items. With the expanded real v2 bank selected, study can also use 4,908 safe vocabulary/verb facts. The 31 legacy quiz modes are available on the original quiz screen.
 - Mixed 10-item assessments worked for all 24 chapters and three seeds per chapter. Existing vocabulary files and IndexedDB data are unchanged. Word-type and practice-depth filters and rule-specific follow-up practice are available.
 - Tests: 60 passed with real fixtures in the release checkout, 10 baseline-only fixtures skipped. Production build and offline end-to-end checks passed.
+
+## Phase 10 — Release verification
+
+- 71 automated tests passed with all original and study fixtures. Included 528 seeded legacy rounds and 72 assessed chapter rounds. Offline browser and IndexedDB transaction tests passed.
+- Production builds passed. Content and Git audits keep the original PDFs, private study material, private vocabulary and study progress outside the public app. Original v1 and v2 transfer files still match the Phase 0 backups.
+- Added the test report and Arabic usage guide and prepared a local-only candidate on codex/four-source-study. Release approval is required before pushing code or deploying.

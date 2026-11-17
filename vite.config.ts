@@ -9,7 +9,8 @@ export default defineConfig({
     fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/data/**',
       '**/reports/**', '**/source-pdfs/**', '**/private/**', '**/backups/**', '**/tmp/**', '**/*.[pP][dD][fF]',
       '**/*personal-vocabulary*.json', '**/*complete-private*.json', '**/*private-vocabulary*.json',
-      '**/*vocabulary-backup*.json', '**/*.backup.json'] },
+      '**/*vocabulary-backup*.json', '**/*.backup.json',
+      '**/study-private/**', '**/*-private*.json', '**/reviewed-*.json'] },
   },
   plugins: [react()],
 })
