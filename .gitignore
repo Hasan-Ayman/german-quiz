@@ -10,6 +10,8 @@
 /dist/
 *personal-vocabulary*.json
 *complete-private*.json
+# Unified private education package
+**/german-quiz-complete-private.json
 *private-vocabulary*.json
 *vocabulary-backup*.json
 *.backup.json

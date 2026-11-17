@@ -4,7 +4,7 @@ import { expect, it } from 'vitest'
 import { entries, fixtureDataset, rawPilot } from './fixtures'
 import { LanguageText, QuizApp, QuizPanel, Results } from '../src/App'
 import { preparePersonalQuiz } from '../src/personal-quiz'
-import { VocabularyFile } from '../src/VocabularyFile'
+import { EducationImport } from '../src/EducationImport'
 import { automaticExampleApproval, readVerifiedPilot } from '../src/pilot'
 import { answer, buildCatalog, makeQuiz, newAttempt, nextQuestion, type Attempt, type Mode } from '../src/quiz'
 
@@ -39,10 +39,11 @@ it('renders the level and round options with A2 and 10 selected by default', asy
 })
 
 it('offers a local file picker before a personal dataset is available', () => {
-  const home = renderToStaticMarkup(<VocabularyFile bank={null} onImport={async () => {}} storageFailed={false} />)
-  expect(home).toContain('ابدأ باستيراد مفرداتك')
-  expect(home).toContain('type="file"')
-  expect(home).not.toContain('تنزيل ملف المفردات')
+  const home = renderToStaticMarkup(<EducationImport entries={null} chapters={null} activities={null}
+    loading={false} storageIssue={false} status={{ kind: 'idle' }} onImport={() => {}} />)
+  expect(home).toContain('استيراد المحتوى التعليمي')
+  expect(home).toContain('استيراد ملف المحتوى')
+  expect(home.match(/type="file"/gu)).toHaveLength(1)
 })
 
 it('shows a verified German example after answering and hides it beforehand', () => {

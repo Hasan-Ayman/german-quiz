@@ -1,5 +1,5 @@
 type ImportCode = 'empty' | 'size' | 'read' | 'encoding' | 'syntax' | 'schema' |
-  'missing' | 'record' | 'source' | 'no-questions' | 'storage' | 'quota'
+  'missing' | 'record' | 'source' | 'study' | 'no-questions' | 'storage' | 'quota'
 
 export class ImportProblem extends Error {
   readonly code: ImportCode
@@ -38,9 +38,10 @@ export function importMessage(error: unknown): string {
     case 'schema': return 'تنسيق ملف المفردات أو إصداره غير مدعوم. حدّث التطبيق واختر ملف المفردات الشخصي بالإصدار ١ أو ٢.'
     case 'missing': return 'حقل مطلوب مفقود' + row + (error.field ? ' [' + error.field + ']' : '') + '. اختر نسخة كاملة من ملف المفردات.'
     case 'record': return 'سجل مفردات أو بيانات أمثلته غير صالح' + row + '. اختر النسخة الأصلية من الملف.'
+    case 'study': return 'بيانات الفصول أو الدروس أو الأنشطة غير صالحة. اختر النسخة الأصلية من الملف.'
     case 'source': return 'بيانات المصدر أو أمثلته غير صالحة' + row + '. اختر النسخة الأصلية من الملف.'
     case 'no-questions': return 'لا يمكن توليد أسئلة من المفردات الموجودة في الملف. اختر ملفًا يحتوي على مفردات مؤهلة.'
-    case 'quota': return 'مساحة التخزين في المتصفح غير كافية. حرّر مساحة على الجهاز دون حذف بيانات موقع مفردات، ثم أعد المحاولة.'
+    case 'quota': return 'مساحة التخزين في المتصفح غير كافية. حرّر مساحة على الجهاز دون حذف بيانات التطبيق، ثم أعد المحاولة.'
     case 'storage': return 'تعذّر حفظ الملف في المتصفح. أغلق علامات التبويب الأخرى للتطبيق وتحقّق من السماح بالتخزين المحلي، ثم حاول مجددًا.'
   }
 }

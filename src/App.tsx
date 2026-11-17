@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
 import { Icon } from './icons'
-import { readPersonalFile, validatePersonalDataset } from './personal-data'
+import { educationImportMessage, readEducationFile, validateEducationPackage } from './education-package'
 import { factType, preparePersonalQuiz, selectedPersonalCatalog, type PersonalQuiz } from './personal-quiz'
-import { loadPersonalDataset, savePersonalDataset } from './personal-storage'
+import { loadEducationLibrary, saveEducationPackage } from './education-storage'
+import type { StudyPack } from './study-content'
 import { useAppUpdate } from './pwa'
-import { VocabularyFile } from './VocabularyFile'
+import { EducationImport, type ImportStatus } from './EducationImport'
 import { QuizFilters } from './QuizFilters'
 import { UnifiedPractice, type PracticeScreen } from './UnifiedPractice'
 import { loadPracticePreferences, levelMatches, type Scope } from './practice'
@@ -500,10 +501,12 @@ export function QuizApp({ bank, fileControls, legacy = false }: { bank: Personal
 export default function App() {
   const screen = useSyncExternalStore(subscribeScreen, readScreen, () => 'home' as const)
   const [theme, setTheme] = useState(loadTheme)
-  const [bank, setBank] = useState<PersonalQuiz | null>(null)
+  const [library, setLibrary] = useState<{bank: PersonalQuiz | null; pack: StudyPack | null; storageIssue: boolean}>(() =>
+    ({ bank: null, pack: null, storageIssue: false }))
+  const { bank, pack, storageIssue } = library
   const [loading, setLoading] = useState(true)
-  const [storageFailed, setStorageFailed] = useState(false)
-  const [importSequence, setImportSequence] = useState(0)
+  const [importStatus, setImportStatus] = useState<ImportStatus>({ kind: 'idle' })
+  const importInProgress = useRef(false)
   const applyUpdate = useAppUpdate()
 
   useEffect(() => {
@@ -514,16 +517,12 @@ export default function App() {
   useEffect(() => {
     let active = true
     async function load() {
-      try {
-        const saved = await loadPersonalDataset()
-        if (saved && active) {
-          const restored = await preparePersonalQuiz(validatePersonalDataset(saved))
-          if (active) setBank(restored)
-        }
-      } catch {
-        if (active) setStorageFailed(true)
-      } finally {
-        if (active) setLoading(false)
+      const saved = await loadEducationLibrary().catch(() => ({ vocabulary: null, study: null, storageIssue: true }))
+      if (!active) return
+      const restored = saved.vocabulary ? await preparePersonalQuiz(saved.vocabulary).catch(() => null) : null
+      if (active) {
+        setLibrary({ bank: restored, pack: saved.study, storageIssue: saved.storageIssue || Boolean(saved.vocabulary && !restored) })
+        setLoading(false)
       }
     }
     void load()
@@ -531,14 +530,32 @@ export default function App() {
   }, [])
 
   async function importFile(file: File) {
-    const dataset = await readPersonalFile(file)
-    const nextBank = await preparePersonalQuiz(dataset)
-    await savePersonalDataset(dataset)
-    setStorageFailed(false)
-    setBank(nextBank)
-    setImportSequence(value => value + 1)
+    if (loading || importInProgress.current) return
+    importInProgress.current = true
+    const stage = async (value: Extract<ImportStatus, { kind: 'busy' }>['stage']) => {
+      setImportStatus({ kind: 'busy', stage: value })
+      // Give the browser a frame before running synchronous JSON and catalog checks.
+      await new Promise(resolve => setTimeout(resolve, 0))
+    }
+    try {
+      await stage('reading')
+      const value = await readEducationFile(file)
+      await stage('validating')
+      const content = validateEducationPackage(value)
+      await stage('preparing')
+      const nextBank = await preparePersonalQuiz(content.vocabulary)
+      await stage('saving')
+      const changed = await saveEducationPackage(content)
+      setLibrary({ bank: nextBank, pack: content.study, storageIssue: false })
+      setImportStatus({ kind: 'success', duplicate: !changed })
+    } catch (error) {
+      setImportStatus({ kind: 'error', message: educationImportMessage(error) })
+    } finally {
+      importInProgress.current = false
+    }
   }
-  const fileControls = <VocabularyFile bank={bank} onImport={importFile} storageFailed={storageFailed} />
+  const importControls = <EducationImport entries={bank?.dataset.entries.length ?? null} chapters={pack?.chapters.length ?? null}
+    activities={pack?.questions.length ?? null} loading={loading} storageIssue={storageIssue} status={importStatus} onImport={importFile} />
   const legacy = screen === 'quiz' || screen === 'results' || screen === 'review' || screen === 'vocabulary'
   const tabs = [
     { href: '#/', icon: 'grid', label: 'التدريب', active: screen === 'home' || screen === 'practice' || (legacy && screen !== 'vocabulary') },
@@ -571,12 +588,12 @@ export default function App() {
       {applyUpdate && <aside className="site-container app-update" aria-label="تحديث التطبيق">
         <button type="button" className="button secondary" onClick={applyUpdate}>تثبيت تحديث التطبيق</button>
       </aside>}
-      <UnifiedPractice screen={legacy ? null : screen} navigate={navigate} bank={bank} vocabularyLoading={loading}
-        vocabularyControls={fileControls} theme={theme} changeTheme={setTheme} />
-      {legacy && (bank ? <QuizApp key={importSequence} bank={bank} legacy /> :
+      <UnifiedPractice screen={legacy ? null : screen} navigate={navigate} bank={bank} pack={pack} contentLoading={loading}
+        importControls={importControls} theme={theme} changeTheme={setTheme} />
+      {legacy && (bank ? <QuizApp key={bank.revision} bank={bank} legacy /> :
         <main className="site-container main-content">
           {loading ? <p role="status">جارٍ فتح مكتبة المفردات…</p> : <section className="panel practice-empty">
-            <h1>استورد مفرداتك لفتح القاموس والاختبارات المحفوظة</h1>
+            <h1>استورد ملف المحتوى لفتح القاموس والاختبارات المحفوظة</h1>
             <a className="button primary" href="#/settings">فتح إعدادات المحتوى</a>
           </section>}
         </main>)}

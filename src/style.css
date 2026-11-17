@@ -411,20 +411,6 @@ progress::-moz-progress-bar { background: var(--green); border-radius: 50px; }
   .review-heading { align-items: flex-start; flex-direction: column; gap: 12px; }
 }
 
-.vocabulary-file {
-  margin-block: 1.5rem;
-  padding: clamp(1rem, 4vw, 2rem);
-  max-width: 56rem;
-}
-
-.vocabulary-file h1, .vocabulary-file h2 {
-  margin-block: 0 .65rem;
-}
-
-.vocabulary-file .actions {
-  flex-wrap: wrap;
-}
-
 .app-update {
   margin-block-start: .75rem;
 }
@@ -637,7 +623,7 @@ button:disabled { cursor: default; }
 .activity-choice:has(input:checked) .activity-icon { color: inherit; }
 .advanced-options { border-block-start: 1px solid var(--line); padding-block-start: .4rem; }
 .advanced-options > summary { padding-inline: .15rem; }
-.advanced-grid, .settings-imports { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin-block: .5rem .3rem; }
+.advanced-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin-block: .5rem .3rem; }
 .advanced-grid label { display: grid; align-content: start; gap: .25rem; min-width: 0; font-size: .87rem; font-weight: 650; }
 .advanced-grid select { inline-size: 100%; min-height: 44px; font: inherit; background: var(--surface-soft); border: 1px solid var(--line); border-radius: 8px; color: var(--ink); }
 .start-card h2 { margin: .75rem 0 1rem; }
@@ -663,10 +649,14 @@ button:disabled { cursor: default; }
 .settings-options { display: flex; flex-wrap: wrap; gap: .5rem; margin-block-start: .6rem; }
 .settings-options [aria-pressed=true] { color: var(--green); border-color: var(--green); background: var(--green-soft); }
 .settings-option { display: flex; align-items: center; gap: .55rem; min-height: 44px; width: fit-content; cursor: pointer; }
-.settings-imports .vocabulary-file { margin: 0; padding: 1rem; box-shadow: none; display: grid; align-content: start; gap: .55rem; }
-.settings-imports .vocabulary-file h1 { font-size: 1.19rem; }
-.file-label { display: grid; gap: .4rem; font-size: .9rem; }
-.file-label input { min-height: 44px; width: 100%; font: inherit; }
+.education-import { display: grid; gap: .7rem; }
+.education-import > p { color: var(--muted); }
+.education-import > button { justify-self: start; }
+.education-counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; max-width: 28rem; }
+.education-counts > div { border: 1px solid var(--line); border-radius: 9px; background: var(--surface-soft); padding: .5rem; }
+.education-counts dt { color: var(--muted); font-size: .87rem; }
+.education-counts dd { font-weight: 700; }
+.education-progress { display: grid; gap: .3rem; max-width: 28rem; }
 .chapter-page-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
 .chapter-navigation { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: .7rem; gap: .6rem; }
 .chapter-navigation button { display: flex; width: 100%; min-height: 44px; gap: .5rem; align-items: center; text-align: start; background: none; border: 0; border-radius: 8px; color: var(--ink); cursor: pointer; }
@@ -734,7 +724,6 @@ button:disabled { cursor: default; }
   }
   .start-action > p { margin: 0; }
   .start-card h2 { margin-block: .5rem; }
-  .settings-imports { grid-template-columns: 1fr; }
 }
 @media (max-width: 360px) {
   .unified-nav a svg { display: none; }

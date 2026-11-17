@@ -222,9 +222,9 @@ export function validatePersonalDataset(input: unknown): PersonalDataset {
   return { ...record, format, version, entries, distractorGroups, ...(sourceRows ? { sourceRows } : {}) }
 }
 
-export async function readPersonalFile(file: Pick<File, 'size' | 'text'> & Partial<Pick<File, 'arrayBuffer'>>) {
-  if (!file.size) throw new ImportProblem('empty', 'Empty vocabulary file')
-  if (file.size > maximumDatasetBytes) throw new ImportProblem('size', 'Invalid vocabulary file size')
+export async function readPrivateJson(file: Pick<File, 'size' | 'text'> & Partial<Pick<File, 'arrayBuffer'>>, maximumBytes: number): Promise<unknown> {
+  if (!file.size) throw new ImportProblem('empty', 'Empty private file')
+  if (file.size > maximumBytes) throw new ImportProblem('size', 'Invalid private file size')
   let content: string | ArrayBuffer
   try {
     if (typeof file.arrayBuffer === 'function') content = await file.arrayBuffer()
@@ -250,13 +250,15 @@ export async function readPersonalFile(file: Pick<File, 'size' | 'text'> & Parti
       throw new ImportProblem('encoding', 'Invalid text encoding', undefined, undefined, { cause: error })
     }
   }
-  let input: unknown
   try {
-    input = JSON.parse(content.replace(/^\uFEFF/u, ''))
+    return JSON.parse(content.replace(/^\uFEFF/u, ''))
   } catch (error) {
     throw new ImportProblem('syntax', 'Invalid JSON syntax', undefined, undefined, { cause: error })
   }
-  return validatePersonalDataset(input)
+}
+
+export async function readPersonalFile(file: Parameters<typeof readPrivateJson>[0]) {
+  return validatePersonalDataset(await readPrivateJson(file, maximumDatasetBytes))
 }
 
 export function serializePersonalDataset(dataset: PersonalDataset) {

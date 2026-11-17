@@ -2,6 +2,8 @@ import { useState, type ChangeEvent } from 'react'
 import { downloadStudyJson, encodeProgress, readProgressFile, reviewSchedule, saveStudyProgress,
   studyStats, type StudyEvent } from './study-progress'
 import type { StudyPack, StudyQuestion } from './study-content'
+import { serializePersonalDataset, type PersonalDataset } from './personal-data'
+import { createEducationPackage, educationFilename, serializeEducationPackage } from './education-package'
 import { studyTypeLabels } from './study-labels'
 
 const number = new Intl.NumberFormat('ar-u-nu-arab')
@@ -39,8 +41,8 @@ export function StudyProgress({ pack, additional, events, update, retry }: {
   </section>
 }
 
-export function StudyBackup({ pack, events, update }: {
-  pack: StudyPack | null; events: StudyEvent[]; update: (events: StudyEvent[]) => void
+export function StudyBackup({ vocabulary, pack, events, update }: {
+  vocabulary: PersonalDataset | null; pack: StudyPack | null; events: StudyEvent[]; update: (events: StudyEvent[]) => void
 }) {
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
@@ -64,8 +66,15 @@ export function StudyBackup({ pack, events, update }: {
       <div className="study-flow">
         <button className="button secondary" type="button" onClick={() =>
           downloadStudyJson('german-quiz-study-progress-private.json', encodeProgress(events))}>تنزيل التقدم</button>
-        {pack && <button className="button secondary" type="button" onClick={() =>
-          downloadStudyJson('german-quiz-study-private.json', JSON.stringify(pack))}>تنزيل حزمة الدراسة</button>}
+        {vocabulary && pack ? <button className="button secondary" type="button" onClick={() =>
+          downloadStudyJson(educationFilename, serializeEducationPackage(createEducationPackage(vocabulary, pack)))}>
+          تنزيل ملف المحتوى</button> : <>
+          {vocabulary && <button className="button secondary" type="button" onClick={() =>
+            downloadStudyJson('german-quiz-personal-vocabulary-v' + vocabulary.version + '.json', serializePersonalDataset(vocabulary))}>
+            تنزيل ملف المفردات</button>}
+          {pack && <button className="button secondary" type="button" onClick={() =>
+            downloadStudyJson('german-quiz-study-private.json', JSON.stringify(pack))}>تنزيل حزمة الدراسة</button>}
+        </>}
         <label htmlFor="study-progress-file">استعادة أو دمج التقدم</label>
         <input id="study-progress-file" type="file" accept=".json,application/json" onChange={restore} />
         {status && <p role="status">{status}</p>}

@@ -4,7 +4,7 @@ import { createServer } from 'node:http'
 import { join, resolve } from 'node:path'
 import { chromium } from 'playwright-core'
 
-const [baseline, personalFile, legacyFile, studyFile] = process.argv.slice(2)
+const [baseline, personalFile, legacyFile, studyFile, educationFile = process.env.GERMAN_QUIZ_EDUCATION_TEST_FILE] = process.argv.slice(2)
 assert(baseline && personalFile && legacyFile && studyFile, 'Pass the previous production shell, v2, v1, and study files.')
 const pack = JSON.parse(await readFile(studyFile, 'utf8'))
 const published = resolve(baseline)
@@ -142,6 +142,20 @@ try {
   await page.getByRole('button', { name: /^البطاقات المستحقّة/u }).waitFor()
   await page.getByRole('link', { name: 'تابع اختبار المفردات المحفوظ', exact: true }).waitFor()
   await page.getByRole('link', { name: 'الإعدادات', exact: true }).click()
+  await page.getByRole('heading', { name: 'استيراد المحتوى التعليمي', exact: true }).waitFor()
+  await page.locator('.education-counts').waitFor()
+  assert.deepEqual(await page.locator('.education-counts dd').allTextContents(),
+    [personal.entries.length, pack.chapters.length, pack.questions.length].map(value => format.format(value)))
+  assert.equal(await page.getByRole('button', { name: 'استيراد ملف المحتوى', exact: true }).count(), 1)
+  assert.deepEqual(await snapshot(), before)
+  if (educationFile) {
+    await page.locator('#education-file').setInputFiles(educationFile)
+    await page.getByText('تم استيراد المحتوى التعليمي وحفظه على هذا الجهاز.', { exact: true }).waitFor()
+    assert.deepEqual(await snapshot(), before)
+    await page.evaluate(() => { location.hash = '/quiz' })
+    await page.getByRole('button', { name: 'السؤال التالي', exact: true }).waitFor()
+    await page.getByRole('link', { name: 'الإعدادات', exact: true }).click()
+  }
   await page.getByRole('button', { name: 'فاتح', exact: true }).click()
   await page.getByRole('link', { name: 'التدريب', exact: true }).click()
   await page.getByRole('radio', { name: 'A1+ & A2+', exact: true }).check()

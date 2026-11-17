@@ -1,10 +1,18 @@
 import assert from 'node:assert/strict'
-import { readFile, readdir } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { createServer } from 'node:http'
-import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright-core'
-import { fixtureDataset } from './fixtures.ts'
+import { educationFilename } from '../src/education-package.ts'
+
+const packageFile = process.argv[2] ?? process.env.GERMAN_QUIZ_EDUCATION_TEST_FILE
+assert(packageFile, 'Pass the local unified education JSON path to npm run test:browser.')
+const importBuffer = await readFile(packageFile)
+const fullPackage = JSON.parse(importBuffer)
+const { vocabulary: personal, study: pack } = fullPackage
 
 const root = fileURLToPath(new URL('../dist/', import.meta.url))
 const base = '/german-quiz/'
@@ -30,35 +38,38 @@ const server = createServer((request, response) => {
 })
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
 
-const personal = process.argv[2] ? JSON.parse(await readFile(process.argv[2], 'utf8')) : {
-  ...fixtureDataset, entries: fixtureDataset.entries.map(entry => ({
-    ...entry,
-    examples: entry.examples.length ? entry.examples : [{
-      entryId: entry.id, german: 'Dies ist ein Satz für die Testdatei.', arabic: 'هذه جملة لملف الاختبار.',
-      level: entry.levels[0], origin: 'authored', verificationStatus: 'reviewed',
-    }],
-    incompleteExampleLevels: entry.examples.length ? entry.incompleteExampleLevels : [],
-  })),
-}
-const importBuffer = Buffer.from(JSON.stringify(personal))
-const fixtureName = 'german-quiz-personal-vocabulary-v' + personal.version + '.json'
-const legacyFile = process.argv[3] ? await readFile(process.argv[3]) : null
 const appUrl = 'http://127.0.0.1:' + server.address().port + base
 const origin = new URL(appUrl).origin
-const vocabularySection = 'ملف المفردات الشخصي'
+const educationSection = 'استيراد المحتوى التعليمي'
+const importDone = 'تم استيراد المحتوى التعليمي وحفظه على هذا الجهاز.'
+const chrome = process.env.GERMAN_QUIZ_BROWSER
+  ? { executablePath: process.env.GERMAN_QUIZ_BROWSER } : { channel: 'chrome' }
 const locale = new Intl.NumberFormat('ar-u-nu-arab')
 let browser
 try {
-  browser = await chromium.launch(process.env.GERMAN_QUIZ_BROWSER
-    ? { executablePath: process.env.GERMAN_QUIZ_BROWSER } : { channel: 'chrome' })
+  browser = await chromium.launch(chrome)
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true,
     deviceScaleFactor: 2, hasTouch: true, acceptDownloads: true })
   const unexpectedRequests = []
   await context.route('**/*', route => {
-    if (new URL(route.request().url()).origin === origin) return route.continue()
+    if (new URL(route.request().url()).origin === origin && route.request().method() === 'GET') return route.continue()
     unexpectedRequests.push(route.request().url())
     return route.abort()
   })
+  async function withProfile(profile, use) {
+    const persistent = await chromium.launchPersistentContext(profile, chrome)
+    try {
+      await persistent.route('**/*', route => {
+        const request = route.request()
+        if (new URL(request.url()).origin === origin && request.method() === 'GET') return route.continue()
+        unexpectedRequests.push(request.url())
+        return route.abort()
+      })
+      await use(persistent, persistent.pages()[0] ?? await persistent.newPage())
+    } finally {
+      await persistent.close()
+    }
+  }
   const page = await context.newPage()
   page.setDefaultTimeout(10_000)
   const pageErrors = []
@@ -72,13 +83,49 @@ try {
   const numeric = value => Number(value.trim().replace(/[٬,]/gu, '').replace(/[٠-٩]/gu, c => c.charCodeAt(0) - 1632))
   const available = async () => numeric(await page.getByTestId('eligible-count').textContent())
   const noOverflow = async () => assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
-  const vocabularyInput = () => page.locator('.vocabulary-file input[type=file]').first()
+  const input = () => page.locator('#education-file')
   const toSettings = async () => {
     await settings()
-    const importDetails = page.locator('.settings-section').filter({ has: page.getByText('استيراد المحتوى الخاص', { exact: true }) })
-    await importDetails.waitFor()
-    if (await importDetails.getAttribute('open') === null) await importDetails.locator('summary').click()
+    await page.getByRole('heading', { name: educationSection }).waitFor()
   }
+  const counts = [personal.entries.length, pack.chapters.length, pack.questions.length].map(value => locale.format(value))
+  const checkCounts = async (tab = page) => {
+    await tab.locator('.education-counts').waitFor()
+    assert.deepEqual(await tab.locator('.education-counts dd').allTextContents(), counts)
+  }
+  const readEducation = () => page.evaluate(async () => {
+    const database = await new Promise((resolve, reject) => {
+      const request = indexedDB.open('german-quiz-study', 1)
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    try {
+      return await new Promise((resolve, reject) => {
+        const transaction = database.transaction('study', 'readonly')
+        const store = transaction.objectStore('study')
+        const lookup = store.get('education')
+        const keys = store.getAllKeys()
+        transaction.oncomplete = () => resolve({ record: lookup.result ?? null, keys: keys.result })
+        transaction.onabort = () => reject(transaction.error)
+      })
+    } finally {
+      database.close()
+    }
+  })
+  const disruptNextWrite = mode => page.evaluate(mode => {
+    const original = IDBObjectStore.prototype.put
+    IDBObjectStore.prototype.put = function (value, key) {
+      if (this.name === 'study' && key === 'education') {
+        IDBObjectStore.prototype.put = original
+        if (mode === 'quota') throw new DOMException('Testing quota rollback', 'QuotaExceededError')
+        const request = original.call(this, value, key)
+        this.transaction.abort()
+        return request
+      }
+      return original.call(this, value, key)
+    }
+  }, mode)
+  const selectFile = (buffer, name = educationFilename) => input().setInputFiles({ name, mimeType: 'application/json', buffer })
   const openChapters = async () => {
     const list = page.locator('.chapter-picker')
     if (await list.getAttribute('open') === null) await list.locator('summary').click()
@@ -117,38 +164,35 @@ try {
   await page.keyboard.press('Enter')
   assert.equal(await page.evaluate(() => document.activeElement?.tagName), 'H1')
   await page.getByRole('link', { name: 'استيراد المحتوى' }).click()
-  await page.getByRole('heading', { name: 'ابدأ باستيراد مفرداتك' }).waitFor()
-  await vocabularyInput().setInputFiles({ name: 'broken.json', mimeType: 'application/json', buffer: Buffer.from('{') })
+  await page.getByRole('heading', { name: educationSection }).waitFor()
+  await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller))
+  await context.setOffline(true)
+  assert.equal(await page.getByRole('button', { name: 'استيراد ملف المحتوى', exact: true }).count(), 1)
+  await selectFile(Buffer.from('{'), 'broken.json')
   await page.getByRole('alert').filter({ hasText: 'بنية JSON غير صالحة' }).waitFor()
-  if (legacyFile) {
-    await vocabularyInput().setInputFiles({ name: 'legacy.json', mimeType: 'application/json', buffer: legacyFile })
-    await page.getByRole('heading', { name: vocabularySection }).waitFor()
-  }
-  await vocabularyInput().setInputFiles({ name: fixtureName, mimeType: 'application/json', buffer: importBuffer })
-  const countText = locale.format(personal.entries.length) + ' مفردة مستوردة'
-  await page.getByText(countText, { exact: false }).waitFor()
-  if (legacyFile) {
-    const backup = await page.evaluate(async () => {
-      const database = await new Promise((resolve, reject) => {
-        const request = indexedDB.open('german-quiz-personal')
-        request.onsuccess = () => resolve(request.result)
-        request.onerror = () => reject(request.error)
-      })
-      try {
-        return await new Promise((resolve, reject) => {
-          const read = database.transaction('vocabulary').objectStore('vocabulary').get('backup-v1')
-          read.onsuccess = () => resolve(read.result)
-          read.onerror = () => reject(read.error)
-        })
-      } finally {
-        database.close()
-      }
-    })
-    const old = JSON.parse(legacyFile)
-    assert.equal(backup.version, 1)
-    assert.deepEqual(backup.entries.map(entry => entry.id), old.entries.map(entry => entry.id))
-    assert.deepEqual(backup.entries.flatMap(entry => entry.examples), old.entries.flatMap(entry => entry.examples))
-  }
+  assert.equal((await readEducation()).record, null)
+  await disruptNextWrite('abort')
+  // Delay the local file read so the visible progress stage can be asserted reliably.
+  await page.evaluate(() => {
+    const read = File.prototype.arrayBuffer
+    File.prototype.arrayBuffer = async function () {
+      await new Promise(resolve => setTimeout(resolve, 400))
+      return read.call(this)
+    }
+  })
+  await selectFile(importBuffer)
+  await page.getByRole('progressbar', { name: 'تقدّم الاستيراد' }).waitFor()
+  await page.getByRole('alert').filter({ hasText: 'تعذّر حفظ الملف في المتصفح' }).waitFor()
+  assert.equal((await readEducation()).record, null)
+  const chooser = page.waitForEvent('filechooser')
+  await button('استيراد ملف المحتوى').click()
+  await (await chooser).setFiles(packageFile)
+  await shown(importDone)
+  await checkCounts()
+  const initial = await readEducation()
+  assert(isDeepStrictEqual(initial.record.content, fullPackage), 'Both stored payloads must match the imported file')
+  assert.deepEqual(initial.keys, ['education'])
+  await context.setOffline(false)
 
   await home()
   await page.getByTestId('eligible-count').waitFor()
@@ -165,38 +209,35 @@ try {
   await radio('A1+ & A2+').check()
   await radio('٥٠').check()
   await toSettings()
-  await vocabularyInput().setInputFiles({ name: 'broken.json', mimeType: 'application/json', buffer: Buffer.from('[]') })
+  await selectFile(Buffer.from('[]'), 'wrong-format.json')
+  await page.getByRole('alert').filter({ hasText: 'إصداره غير مدعوم' }).waitFor()
+  await selectFile(Buffer.from(JSON.stringify({ ...fullPackage, study: {} })), 'broken-study.json')
+  await page.getByRole('alert').filter({ hasText: 'بيانات الفصول أو الدروس أو الأنشطة غير صالحة' }).waitFor()
+  await selectFile(Buffer.from(JSON.stringify({ ...fullPackage, vocabulary: {} })), 'broken-vocabulary.json')
   await page.getByRole('alert').filter({ hasText: 'إصداره غير مدعوم' }).waitFor()
   for (const failure of ['quota', 'abort']) {
-    await page.evaluate(mode => {
-      const put = IDBObjectStore.prototype.put
-      IDBObjectStore.prototype.put = function (value, key) {
-        if (key === 'active') {
-          IDBObjectStore.prototype.put = put
-          if (mode === 'quota') throw new DOMException('Test quota', 'QuotaExceededError')
-          const request = put.call(this, value, key)
-          this.transaction.abort()
-          return request
-        }
-        return put.call(this, value, key)
-      }
-    }, failure)
-    await vocabularyInput().setInputFiles({ name: fixtureName, mimeType: 'application/json',
-      buffer: Buffer.from(JSON.stringify({ ...personal, replacementMarker: true })) })
+    await disruptNextWrite(failure)
+    await selectFile(Buffer.from(JSON.stringify({ ...fullPackage, testMarker: failure })))
     await page.getByRole('alert').filter({
       hasText: failure === 'quota' ? 'مساحة التخزين في المتصفح غير كافية' : 'تعذّر حفظ الملف في المتصفح',
     }).waitFor()
     await page.reload()
     await toSettings()
-    await page.getByText(countText, { exact: false }).waitFor()
+    await checkCounts()
+    assert(isDeepStrictEqual((await readEducation()).record, initial.record), 'Failed writes must preserve the entire current package')
   }
+  await disruptNextWrite('abort')
+  await selectFile(importBuffer)
+  await shown('ملف المحتوى محفوظ بالفعل.')
+  assert(isDeepStrictEqual(await readEducation(), initial), 'Identical reimports must leave only one unchanged record')
 
+  await page.getByText('النسخ الاحتياطي والاستعادة', { exact: true }).click()
   const downloadStarted = page.waitForEvent('download')
-  await button('تنزيل ملف المفردات').click()
+  await button('تنزيل ملف المحتوى').click()
   const download = await downloadStarted
-  assert.equal(download.suggestedFilename(), fixtureName)
+  assert.equal(download.suggestedFilename(), educationFilename)
   const exported = await readFile(await download.path())
-  assert.deepEqual(JSON.parse(exported), personal)
+  assert(isDeepStrictEqual(JSON.parse(exported), fullPackage), 'The educational backup must match the imported content')
   await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller))
   const cachedFiles = await page.evaluate(async () => {
     const names = await caches.keys()
@@ -215,7 +256,7 @@ try {
   await context.setOffline(true)
   await page.reload()
   await toSettings()
-  await page.getByText(countText, { exact: false }).waitFor()
+  await checkCounts()
   await home()
   await page.getByTestId('eligible-count').waitFor()
   assert(await radio('٥٠').isChecked())
@@ -249,20 +290,8 @@ try {
   await page.getByRole('searchbox').fill(personal.entries[0].german)
   await page.locator('.example-feedback p[lang=de][dir=ltr]').first().waitFor()
 
-  if (process.env.GERMAN_QUIZ_STUDY_AUDIT) {
-    const path = join(process.env.GERMAN_QUIZ_STUDY_AUDIT, 'german-quiz-study-private.json')
-    const pack = JSON.parse(await readFile(path, 'utf8'))
-    const studyReady = () => page.getByText('محتوى الدراسة جاهز', { exact: false }).waitFor()
-    await toSettings()
-    await page.locator('#study-import').setInputFiles(path)
-    await studyReady()
-    await page.reload()
-    await toSettings()
-    await studyReady()
-    await page.locator('#study-import').setInputFiles({ name: 'broken-study.json', mimeType: 'application/json', buffer: Buffer.from('{}') })
-    await page.getByRole('alert').filter({ hasText: 'تعذّر استيراد حزمة الدراسة' }).waitFor()
-    await studyReady()
 
+  {
     const names = {
       cloze: 'إكمال الجمل', flashcard: 'البطاقات', verb: 'تصريف الأفعال', grammar: 'القواعد', reading: 'القراءة',
       order: 'ترتيب الجمل', case: 'الحالات الإعرابية', error: 'تصحيح الأخطاء', transform: 'تحويل الجمل', writing: 'الكتابة',
@@ -387,31 +416,37 @@ try {
     assert(history.events.some(event => event.chapter === 'A2:5' && event.result === 'incorrect'))
     await page.locator('#study-progress-file').setInputFiles({ name: 'progress.json', mimeType: 'application/json', buffer: progressArchive })
     await shown('تم دمج سجلات التقدم المحفوظة.')
-    const studyOnly = await browser.newContext()
-    const studyPage = await studyOnly.newPage()
-    await studyPage.goto(appUrl + '#/settings')
-    await studyPage.waitForFunction(() => Boolean(navigator.serviceWorker.controller))
-    await studyOnly.setOffline(true)
-    await studyPage.locator('#study-import').setInputFiles(path)
-    await studyPage.getByText('محتوى الدراسة جاهز', { exact: false }).waitFor()
-    await studyPage.getByRole('link', { name: 'التدريب', exact: true }).click()
-    await studyPage.getByRole('button', { name: 'ابدأ التدريب', exact: true }).click()
-    await studyPage.locator('.session-meter').waitFor()
-    await studyOnly.close()
-    console.log('Ten learning activities, three mixed chapters, study-only offline practice, results, retry, lesson navigation and progress backup passed.')
+    console.log('All ten activities, vocabulary, mixed chapters, results, retry, and progress backup passed.')
   }
 
-  const fresh = await browser.newContext({ viewport: { width: 1280, height: 850 } })
-  const transferPage = await fresh.newPage()
-  await transferPage.goto(appUrl + '#/settings')
-  await transferPage.getByRole('heading', { name: 'ابدأ باستيراد مفرداتك' }).waitFor()
-  await transferPage.locator('.vocabulary-file input[type=file]').first().setInputFiles({ name: fixtureName, mimeType: 'application/json', buffer: exported })
-  await transferPage.getByText(countText, { exact: false }).waitFor()
+  const profileRoot = tmpdir()
+  const profile = await mkdtemp(join(profileRoot, 'german-quiz-education-'))
+  try {
+    await withProfile(profile, async (persistent, tab) => {
+      await tab.goto(appUrl + '#/settings')
+      await tab.waitForFunction(() => Boolean(navigator.serviceWorker.controller))
+      await persistent.setOffline(true)
+      await tab.locator('#education-file').setInputFiles({ name: educationFilename, mimeType: 'application/json', buffer: exported })
+      await tab.getByText(importDone, { exact: true }).waitFor()
+      await checkCounts(tab)
+    })
+    await withProfile(profile, async (persistent, tab) => {
+      await persistent.setOffline(true)
+      await tab.goto(appUrl + '#/settings')
+      await checkCounts(tab)
+      await tab.getByRole('link', { name: 'التدريب', exact: true }).click()
+      await tab.getByRole('button', { name: 'ابدأ التدريب', exact: true }).click()
+      await tab.locator('.session-meter').waitFor()
+    })
+  } finally {
+    assert.equal(dirname(profile), profileRoot, 'Only delete the newly created test profile')
+    await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
   assert.deepEqual(unexpectedRequests, [])
   assert.deepEqual(pageErrors, [])
   const shellPaths = new Set([base, ...filePaths.map(file => base + file)])
   assert(serverRequests.every(({ method, url }) => method === 'GET' && shellPaths.has(url)))
-  console.log('Browser smoke passed: both imports, rollback, export transfer, offline, service-worker update, keyboard, bidirectional text and responsive layout.')
+  console.log('Unified import passed: progress stages, malformed data, quota, interrupted transactions, duplicate import, export, offline browser restart, and service-worker update.')
 } finally {
   await browser?.close()
   server.close()

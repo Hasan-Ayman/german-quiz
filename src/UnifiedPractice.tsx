@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ChapterOverview } from './ChapterOverview'
 import { Icon } from './icons'
 import { PracticeSetup, arabicNumber, levelName } from './PracticeSetup'
@@ -8,9 +8,8 @@ import { activities, chapterLevel, eligiblePractice, fromStudyQuestion, levelMat
   practiceChapters, practiceRound, questionGroups, selectedChapters, setChapters, type Activity, type Preferences } from './practice'
 import { flashcardCandidates, vocabularyCandidates } from './practice-vocabulary'
 import { flashcardModes, type FlashcardMode } from './study-flashcards'
-import { readStudyFile, validateStudyPack, type StudyPack, type StudyQuestion } from './study-content'
+import type { StudyPack, StudyQuestion } from './study-content'
 import { studyAssessment } from './study-engine'
-import { loadStudyPack, saveStudyPack } from './study-storage'
 import { loadStudyProgress, makeStudyEvent, reviewSchedule, saveStudyProgress, type StudyEvent, type StudyResult } from './study-progress'
 import { loadAttempt, readLocal, writeLocal, type Theme } from './storage'
 import type { PersonalQuiz } from './personal-quiz'
@@ -21,16 +20,11 @@ export type PracticeScreen = 'home' | 'settings' | 'chapters' | 'progress' | 'pr
 const preferenceKey = 'practice-preferences'
 const assessmentTypes = new Set(['reading', 'cloze', 'verb', 'grammar', 'case', 'vocabulary'])
 
-export function UnifiedPractice({ screen, navigate, bank, vocabularyLoading, vocabularyControls, theme, changeTheme }: {
+export function UnifiedPractice({ screen, navigate, bank, pack, contentLoading, importControls, theme, changeTheme }: {
   screen: PracticeScreen | null; navigate: (screen: PracticeScreen) => void; bank: PersonalQuiz | null;
-  vocabularyLoading: boolean; vocabularyControls: ReactNode; theme: Theme; changeTheme: (theme: Theme) => void;
+  pack: StudyPack | null; contentLoading: boolean; importControls: ReactNode; theme: Theme; changeTheme: (theme: Theme) => void;
 }) {
   const [prefs, setPrefs] = useState(() => loadPracticePreferences(readLocal(preferenceKey), readLocal('quiz-settings')))
-  const [pack, setPack] = useState<StudyPack | null>(null)
-  const [packLoading, setPackLoading] = useState(true)
-  const [importing, setImporting] = useState(false)
-  const [importOpen, setImportOpen] = useState(true)
-  const [importError, setImportError] = useState('')
   const [progressError, setProgressError] = useState('')
   const [events, setEvents] = useState<StudyEvent[]>([])
   const [session, setSession] = useState<{ plan: PracticePlan; position: PracticePosition } | null>(null)
@@ -43,13 +37,6 @@ export function UnifiedPractice({ screen, navigate, bank, vocabularyLoading, voc
   useEffect(() => writeLocal(preferenceKey, JSON.stringify(prefs)), [prefs])
   useEffect(() => {
     let active = true
-    void loadStudyPack().then(value => {
-      if (active && value) setPack(validateStudyPack(value))
-    }).catch(() => {
-      if (active) setImportError('تعذّر فتح حزمة الدراسة المحفوظة.')
-    }).finally(() => {
-      if (active) setPackLoading(false)
-    })
     void loadPracticeSession().then(value => {
       if (active && value) {
         setSession(value)
@@ -70,23 +57,6 @@ export function UnifiedPractice({ screen, navigate, bank, vocabularyLoading, voc
     window.scrollTo(0, 0)
     if (screen !== 'practice') document.querySelector<HTMLElement>('.unified-main h1')?.focus({ preventScroll: true })
   }, [screen, home])
-
-  async function importStudy(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.currentTarget.files?.[0]
-    event.currentTarget.value = ''
-    if (!file) return
-    setImportError('')
-    setImporting(true)
-    try {
-      const next = await readStudyFile(file)
-      await saveStudyPack(next)
-      setPack(next)
-    } catch {
-      setImportError('تعذّر استيراد حزمة الدراسة. تحقّق من صيغة الملف ومساحة التخزين.')
-    } finally {
-      setImporting(false)
-    }
-  }
 
   function record(item: StudyQuestion, result: StudyResult) {
     void saveStudyProgress([makeStudyEvent(item, result)]).then(setEvents)
@@ -191,7 +161,7 @@ export function UnifiedPractice({ screen, navigate, bank, vocabularyLoading, voc
       {session && !sessionFinished && <div className="resume-strip"><Icon name="retry" size={18} />
         <span>لديك جلسة تدريب جارية.</span><a href="#/practice">تابع التدريب</a>
       </div>}
-      {packLoading || vocabularyLoading || sessionLoading ? <p role="status" className="panel loading-content">جارٍ فتح محتواك المحفوظ…</p> :
+      {contentLoading || sessionLoading ? <p role="status" className="panel loading-content">جارٍ فتح محتواك المحفوظ…</p> :
         <PracticeSetup prefs={prefs} update={setPrefs} chapters={chapters} selected={selected} kinds={kinds}
           counts={counts} entries={bank?.dataset.entries.length ?? 0} available={groups.size}
           start={startPractice} missingStudy={missingStudy}
@@ -218,24 +188,8 @@ export function UnifiedPractice({ screen, navigate, bank, vocabularyLoading, voc
             onChange={() => setPrefs(before => ({ ...before, reliability: 'with-automatic' }))} /> المراجَعة والمتحقّق منها آليًا</label>
           <p className="setup-helper">المفردات المتحقّق منها آليًا قد لا تكون راجعتْها يدويًا جهة مختصّة.</p>
         </section>}
-        <details className="settings-section" open={importOpen} onToggle={event => setImportOpen(event.currentTarget.open)}>
-          <summary>استيراد المحتوى الخاص</summary>
-          <div className="settings-imports">
-            {vocabularyLoading ? <p role="status">جارٍ فتح المفردات…</p> : vocabularyControls}
-            <section className="vocabulary-file panel" aria-labelledby="study-import-heading">
-              <h2 id="study-import-heading">حزمة الدراسة</h2>
-              {packLoading ? <p role="status">جارٍ تجهيز حزمة الدراسة…</p> : pack ?
-                <p className="notice">محتوى الدراسة جاهز · {arabicNumber(pack.chapters.length)} فصلًا.</p> :
-                <p>أضف حزمة الدراسة لفتح الدروس وتمارين الفصول.</p>}
-              <label className="file-label"> {pack ? 'استبدال حزمة الدراسة' : 'اختر حزمة الدراسة'}
-                <input id="study-import" type="file" accept=".json,application/json" onChange={importStudy} disabled={packLoading || importing} />
-              </label>
-              {importing && <p role="status">جارٍ فحص الحزمة…</p>}
-              {importError && <p role="alert">{importError}</p>}
-            </section>
-          </div>
-        </details>
-        <StudyBackup pack={pack} events={events} update={setEvents} />
+        {importControls}
+        <StudyBackup vocabulary={bank?.dataset ?? null} pack={pack} events={events} update={setEvents} />
         <details className="settings-section"><summary>العمل دون اتصال والتخزين</summary>
           <p>تُحفظ الملفات والتقدم على هذا المتصفح. بعد اكتمال تحميل التطبيق يمكنك متابعة التدريب دون اتصال. احتفظ بنسخة احتياطية لنقل بياناتك إلى جهاز آخر.</p>
         </details>
@@ -266,8 +220,8 @@ export function UnifiedPractice({ screen, navigate, bank, vocabularyLoading, voc
           </div>
         </div> : <section className="panel practice-empty"><Icon name="book" size={28} /><h2>اختر فصلًا لعرض دروسه</h2></section>}
       </div> : <section className="panel practice-empty">
-        <h2>{packLoading ? 'جارٍ فتح الدروس…' : 'استورد حزمة الدراسة لفتح الدروس'}</h2>
-        {!packLoading && <a className="button primary" href="#/settings">فتح إعدادات المحتوى</a>}
+        <h2>{contentLoading ? 'جارٍ فتح الدروس…' : 'استورد ملف المحتوى لفتح الدروس'}</h2>
+        {!contentLoading && <a className="button primary" href="#/settings">فتح إعدادات المحتوى</a>}
       </section>}
     </>}
     {screen === 'progress' && <div className="study-flow">

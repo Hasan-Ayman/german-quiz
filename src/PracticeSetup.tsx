@@ -48,7 +48,7 @@ export function PracticeSetup({ prefs, update, chapters, selected, kinds, counts
     {missingVocabulary && missingStudy ? <section className="panel practice-empty">
       <span className="practice-symbol"><Icon name="book" size={25} /></span>
       <h2>أضف محتوى التعلّم الخاص بك</h2>
-      <p>استورد ملف المفردات أو حزمة الدراسة لبدء التدريب على هذا الجهاز.</p>
+      <p>استورد ملف المحتوى التعليمي لبدء التدريب على هذا الجهاز.</p>
       <a href="#/settings" className="button primary">استيراد المحتوى</a>
     </section> : <div className="practice-grid">
       <div className="practice-form panel">
@@ -190,7 +190,7 @@ export function PracticeSetup({ prefs, update, chapters, selected, kinds, counts
       </aside>
     </div>}
     {chapters.length > 0 && <div className="setup-helper practice-data-note">
-      {missingVocabulary || missingStudy ? <a href="#/settings">{missingVocabulary ? 'أضف ملف المفردات للمزيد من التمارين' : 'أضف حزمة الدراسة لفتح الدروس والأنشطة'}</a> :
+      {missingVocabulary || missingStudy ? <a href="#/settings">استورد ملف المحتوى لإضافة الدروس والمفردات المتبقية</a> :
         <span><Icon name="check" size={16} /> المفردات ومحتوى الدراسة جاهزان على هذا الجهاز · {arabicNumber(entries)} مفردة</span>}
     </div>}
   </>

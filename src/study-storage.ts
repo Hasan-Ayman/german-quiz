@@ -50,7 +50,9 @@ export async function updateStudyRecord<T>(key: string, modify: (previous: unkno
       previous.onerror = () => { failure = previous.error }
       previous.onsuccess = () => {
         try {
-          updated = modify(previous.result ?? null)
+          const stored = previous.result ?? null
+          updated = modify(stored)
+          if (updated === stored) return
           const request = store.put(updated, key)
           request.onerror = () => { failure = request.error }
         } catch (error) {
