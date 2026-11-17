@@ -12,3 +12,11 @@
 ## Next
 
 Phase 1 inventories the authoritative source pages and pairs printed chapter boundaries with physical PDF pages. Private curricular text stays in the local audit folder.
+
+## Phase 1 — Four-source curriculum map
+
+- Mapped 24 chapters and accounted for all 680 physical PDF pages. The private audit stores 674 text-bearing pages and six textless pages.
+- Paired printed contents and overview anchors, retained title variants, and indexed review and exam sections.
+- Added the source audit tool, curriculum checks, and public-safe coverage reports.
+- Tests: 53 passed in the release checkout with the full v2 file and source map, 10 older private-fixture tests ran during the Phase 0 baseline. Production build and browser regression passed.
+- Chapter-body OCR and candidate skill markers remain machine-extracted evidence. Phase 2 builds checked study material from reviewed source anchors.
