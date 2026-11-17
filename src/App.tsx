@@ -39,10 +39,11 @@ function modeDetails(mode: Mode) {
 type Screen = PracticeScreen | 'quiz' | 'results' | 'review' | 'vocabulary'
 
 function readScreen(): Screen {
-  const name = window.location.hash.slice(2)
+  const name = window.location.hash.slice(2).split('?')[0]
   if (name === 'study') return 'home'
   return name === 'quiz' || name === 'results' || name === 'review' || name === 'vocabulary' ||
-    name === 'settings' || name === 'chapters' || name === 'progress' || name === 'practice' ? name : 'home'
+    name === 'settings' || name === 'chapters' || name === 'progress' || name === 'practice' ||
+    name === 'setup' || name === 'mistakes' ? name : 'home'
 }
 
 function subscribeScreen(callback: () => void) {
@@ -229,10 +230,11 @@ function Home({ bank, attempt, settings, updateSettings, start }: {
   )
 }
 
-export function QuizPanel({ attempt, select, advance }: {
+export function QuizPanel({ attempt, select, advance, concise = false }: {
   attempt: Attempt
   select: (id: string) => void
   advance: () => void
+  concise?: boolean
 }) {
   const current = attempt.questions[attempt.index]
   const total = attempt.questions.length
@@ -284,8 +286,10 @@ export function QuizPanel({ attempt, select, advance }: {
                 <Icon name={isCorrect(current, selected) ? 'check' : 'cross'} size={18} />
                 {isCorrect(current, selected) ? 'إجابة صحيحة!' : 'إجابة غير صحيحة'}
               </strong>
-              <VocabularyDetail entry={current.entry} />
-              <EntryExamples entry={current.entry} level={attempt.level} preferred={current.exampleGerman} compact />
+              {(!concise || !isCorrect(current, selected)) && <>
+                <VocabularyDetail entry={current.entry} />
+                <EntryExamples entry={current.entry} level={attempt.level} preferred={current.exampleGerman} compact />
+              </>}
             </div>
             <button className="button primary next-button" type="button" onClick={advance}>
               {attempt.index + 1 === total ? 'عرض النتيجة' : 'السؤال التالي'} <Icon name="left" size={18} />
@@ -490,8 +494,8 @@ export function QuizApp({ bank, fileControls, legacy = false }: { bank: Personal
         {fileControls}
       </>}
       {screen === 'quiz' && attempt &&
-        <QuizPanel attempt={attempt} select={id => setAttempt(current => current && answer(current, id))} advance={advance} />}
-      {screen === 'results' && attempt && <Results attempt={attempt} start={legacy ? () => navigate('home') : start} retry={retry} />}
+        <QuizPanel attempt={attempt} concise={legacy} select={id => setAttempt(current => current && answer(current, id))} advance={advance} />}
+      {screen === 'results' && attempt && <Results attempt={attempt} start={legacy ? () => navigate('setup') : start} retry={retry} />}
       {screen === 'review' && attempt && <Review attempt={attempt} retry={retry} />}
       {preferences && <VocabularyReview bank={bank} scope={preferences.scope} reliability={preferences.reliability} />}
     </main>
@@ -558,10 +562,12 @@ export default function App() {
     activities={pack?.questions.length ?? null} loading={loading} storageIssue={storageIssue} status={importStatus} onImport={importFile} />
   const legacy = screen === 'quiz' || screen === 'results' || screen === 'review' || screen === 'vocabulary'
   const tabs = [
-    { href: '#/', icon: 'grid', label: 'التدريب', active: screen === 'home' || screen === 'practice' || (legacy && screen !== 'vocabulary') },
+    { href: '#/', icon: 'grid', label: 'الرئيسية', active: screen === 'home' },
+    { href: '#/setup', icon: 'verb', label: 'التدريب', active: screen === 'setup' || screen === 'practice' || (legacy && screen !== 'vocabulary') },
+    { href: '#/mistakes', icon: 'retry', label: 'دفتر الأخطاء', active: screen === 'mistakes' },
     { href: '#/chapters', icon: 'book', label: 'الدروس', active: screen === 'chapters' },
     { href: '#/vocabulary', icon: 'list', label: 'القاموس', active: screen === 'vocabulary' },
-    { href: '#/progress', icon: 'progress', label: 'التقدّم', active: screen === 'progress' },
+    { href: '#/progress', icon: 'progress', label: 'التحليلات', active: screen === 'progress' },
   ] as const
 
   return (

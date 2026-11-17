@@ -51,7 +51,7 @@ const item = (id: string, type: StudyQuestion['type'], chapter: ChapterKey, prom
 it('reports the exact count, removes equivalent items across chapters and mixes tasks and references', () => {
   const pool = [
     item('a', 'cloze', 'A1:1', 'eins'), item('b', 'reading', 'A1:3', 'zwei'),
-    item('c', 'cloze', 'A2:5', 'eins'), item('d', 'writing', 'A2:5', 'drei'),
+    item('c', 'cloze', 'A2:5', 'eins'), item('d', 'case', 'A2:5', 'drei'), item('archived', 'writing', 'A2:5', 'vier'),
     ...Array.from({ length: 57 }, (_, i) => item('extra-' + i, 'reading', 'A1:7', 'Text ' + i)),
   ].map(fromStudyQuestion)
   expect(query(pool, [], original)).toEqual([])
@@ -61,7 +61,7 @@ it('reports the exact count, removes equivalent items across chapters and mixes 
     const round = practiceRound(groups, count, seeded(7))
     expect(round).toHaveLength(count === 'all' ? 60 : count)
     expect(new Set(round.map(candidate => candidate.key)).size).toBe(round.length)
-    expect(new Set(round.map(candidate => candidate.activity))).toEqual(new Set(['cloze', 'writing', 'reading']))
+    expect(new Set(round.map(candidate => candidate.activity))).toEqual(new Set(['cloze', 'case', 'reading']))
     expect(round.find(candidate => candidate.id === 'd')?.make().source.document).toBe('a2-book')
   }
   expect(practiceRound(questionGroups(query(pool, ['A2:5'])), 50)).toHaveLength(2)
@@ -118,6 +118,7 @@ describe.runIf(Boolean(vocabularyFile && studyFolder))('complete private dataset
         }
       }
     }
-    expect(checkedKinds.size).toBe(12)
+    expect(checkedKinds.size).toBe(11)
+    expect(checkedKinds.has('writing')).toBe(false)
   }, 35_000)
 })

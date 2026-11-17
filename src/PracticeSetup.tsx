@@ -9,7 +9,7 @@ export const arabicNumber = (value: number) => new Intl.NumberFormat('ar-u-nu-ar
 export const levelName = (level: Scope) => level === 'all' ? 'A1+ & A2+' : level + '+'
 
 export const activityIcons = {
-  vocabulary: 'swap', nouns: 'article', flashcard: 'cards', verb: 'verb', cloze: 'list',
+  vocabulary: 'swap', matching: 'layers', nouns: 'article', flashcard: 'cards', verb: 'verb', cloze: 'list',
   grammar: 'book', case: 'layers', order: 'sort', error: 'check', transform: 'retry', reading: 'book', writing: 'pen',
 } as const
 
@@ -28,7 +28,7 @@ export function PracticeSetup({ prefs, update, chapters, selected, kinds, counts
   const visible = chapters.filter(chapter => levelMatches(prefs.scope, chapter.level))
   const selectedCount = visible.filter(chapter => selected.includes(chapter.id)).length
   const visibleKinds = Object.keys(activities).filter((key): key is Activity => counts.has(key as Activity))
-  const hiddenSelected = prefs.activities?.filter(kind => !counts.has(kind)) ?? []
+  const hiddenSelected = prefs.activities?.filter(kind => kind !== 'writing' && !counts.has(kind)) ?? []
   const title = chapters.length ? 'ماذا تريد أن تتدرّب عليه؟' : 'ابدأ رحلتك مع الألمانية'
   const updateField = <K extends keyof Preferences>(key: K, value: Preferences[K]) =>
     update(before => ({ ...before, [key]: value }))

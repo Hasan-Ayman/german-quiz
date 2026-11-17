@@ -1,4 +1,6 @@
-import { studyTypes, type StudyQuestion, type StudyType } from './study-content.ts'
+import { activities, type Activity } from './practice.ts'
+import type { PartOfSpeech } from './pilot.ts'
+import { studyTypes, type StudyQuestion } from './study-content.ts'
 import { readStudyRecord, updateStudyRecord } from './study-storage.ts'
 
 export const studyResults = ['correct', 'incorrect', 'known', 'missed', 'completed'] as const
@@ -8,7 +10,11 @@ export type StudyEvent = {
   questionId: string
   chapter: string
   topic: string
-  type: StudyType
+  type: StudyQuestion['type']
+  evidenceVersion?: 2
+  activity?: Activity
+  part?: PartOfSpeech
+  answer?: string
   time: number
   result: StudyResult
 }
@@ -21,14 +27,20 @@ const safeId = (value: unknown): value is string => typeof value === 'string' &&
 
 function checkedEvent(value: unknown): StudyEvent {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid study progress record')
-  const { id, questionId, chapter, topic, type, time, result } = value as Record<string, unknown>
+  const { id, questionId, chapter, topic, type, time, result, evidenceVersion, activity, part, answer } = value as Record<string, unknown>
   if (!safeId(id) || !safeId(questionId) || typeof chapter !== 'string' || !/^A[12]:(?:[1-9]|1[0-2])$/u.test(chapter) ||
       typeof topic !== 'string' || (topic !== '' && (!safeId(topic) || !topic.startsWith(chapter + ':'))) ||
-      !studyTypes.includes(type as StudyType) || typeof time !== 'number' || !Number.isSafeInteger(time) ||
+      !(type === 'matching' || studyTypes.includes(type as typeof studyTypes[number])) || typeof time !== 'number' || !Number.isSafeInteger(time) ||
       time < 1 || time > Date.now() + day || !studyResults.includes(result as StudyResult) ||
       (type === 'writing' ? result !== 'completed' : type === 'flashcard' ? !['known', 'missed'].includes(result as string)
         : !['correct', 'incorrect'].includes(result as string))) throw new Error('Invalid study progress record')
-  return { id, questionId, chapter, topic, type: type as StudyType, time, result: result as StudyResult }
+  if ((evidenceVersion !== undefined && evidenceVersion !== 2) ||
+      (activity !== undefined && (typeof activity !== 'string' || !Object.hasOwn(activities, activity))) ||
+      (part !== undefined && !['noun', 'verb', 'adjective', 'adverb'].includes(part as string)) ||
+      (answer !== undefined && (typeof answer !== 'string' || answer.length > 2000))) throw new Error('Invalid attempt evidence')
+  return { id, questionId, chapter, topic, type: type as StudyQuestion['type'], time, result: result as StudyResult,
+    ...(evidenceVersion === 2 ? { evidenceVersion } : {}), ...(activity ? { activity: activity as Activity } : {}),
+    ...(part ? { part: part as PartOfSpeech } : {}), ...(typeof answer === 'string' ? { answer } : {}) }
 }
 
 function compareEvents(a: StudyEvent, b: StudyEvent) {
@@ -50,9 +62,10 @@ export function mergeStudyProgress(...inputs: unknown[]): StudyEvent[] {
   return [...byId.values()].sort(compareEvents)
 }
 
-export function makeStudyEvent(question: StudyQuestion, result: StudyResult): StudyEvent {
-  return checkedEvent({ id: crypto.randomUUID(), questionId: question.id, chapter: question.chapter,
-    topic: question.topic, type: question.type, result, time: Date.now() })
+export function makeStudyEvent(question: StudyQuestion, result: StudyResult, id: string, answer: string): StudyEvent {
+  return checkedEvent({ id, questionId: question.id, chapter: question.chapter, topic: question.topic,
+    type: question.type, result, time: Date.now(), evidenceVersion: 2, activity: question.activity,
+    part: question.part, ...(result === 'incorrect' && answer ? { answer } : {}) })
 }
 
 export async function loadStudyProgress() {
@@ -63,14 +76,14 @@ export const saveStudyProgress = (events: unknown) =>
   updateStudyRecord('progress', previous => mergeStudyProgress(previous ?? [], events))
 
 export function encodeProgress(events: StudyEvent[]) {
-  return JSON.stringify({ format: 'german-quiz-study-progress', version: 1, events })
+  return JSON.stringify({ format: 'german-quiz-study-progress', version: 2, events })
 }
 
 export async function readProgressFile(file: File) {
-  if (!file.size || file.size > 8 * 1024 * 1024) throw new Error('Invalid progress file')
+  if (!file.size || file.size > 32 * 1024 * 1024) throw new Error('Invalid progress file')
   const data: unknown = JSON.parse((await file.text()).replace(/^\uFEFF/u, ''))
   if (!data || typeof data !== 'object' || !('format' in data) || data.format !== 'german-quiz-study-progress' ||
-      !('version' in data) || data.version !== 1 || !('events' in data)) throw new Error('Unsupported progress file')
+      !('version' in data) || (data.version !== 1 && data.version !== 2) || !('events' in data)) throw new Error('Unsupported progress file')
   return mergeStudyProgress(data.events)
 }
 

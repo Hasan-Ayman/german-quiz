@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -78,7 +78,14 @@ try {
   const go = route => page.evaluate(name => { window.location.hash = '/' + name }, route)
   const shown = (text, options = {}) => page.getByText(text, { exact: true, ...options }).waitFor()
   const button = name => page.getByRole('button', { name, exact: true })
-  const home = () => go('')
+  const home = () => go('setup')
+  const screenshotFolder = process.env.GERMAN_QUIZ_PREMIUM_SCREENSHOTS
+  async function capture(name) {
+    if (!screenshotFolder) return
+    await mkdir(screenshotFolder, { recursive: true })
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await page.screenshot({ path: join(screenshotFolder, name + '.png'), animations: 'disabled', scale: 'css' })
+  }
   const settings = () => go('settings')
   const numeric = value => Number(value.trim().replace(/[٬,]/gu, '').replace(/[٠-٩]/gu, c => c.charCodeAt(0) - 1632))
   const available = async () => numeric(await page.getByTestId('eligible-count').textContent())
@@ -158,7 +165,7 @@ try {
   const next = () => button('النشاط التالي').click()
 
   await page.goto(appUrl)
-  await page.getByRole('heading', { name: 'أضف محتوى التعلّم الخاص بك' }).waitFor()
+  await page.getByRole('heading', { name: 'تقدّمك في الألمانية' }).waitFor()
   await page.locator('.skip-link').focus()
   assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'انتقل إلى المحتوى')
   await page.keyboard.press('Enter')
@@ -193,7 +200,10 @@ try {
   assert(isDeepStrictEqual(initial.record.content, fullPackage), 'Both stored payloads must match the imported file')
   assert.deepEqual(initial.keys, ['education'])
   await context.setOffline(false)
-
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await go('')
+  await page.getByRole('heading', { name: 'تقدّمك في الألمانية' }).waitFor()
+  await capture('01-dashboard')
   await home()
   await page.getByTestId('eligible-count').waitFor()
   await radio('A1+').check()
@@ -260,14 +270,19 @@ try {
   await home()
   await page.getByTestId('eligible-count').waitFor()
   assert(await radio('٥٠').isChecked())
+  await capture('02-practice')
   await chooseKinds(['المفردات'])
   const vocabularyRoundLength = Math.min(50, await available())
   await start()
   assert.equal(await page.locator('.session-examples:visible').count(), 0)
   assert((await page.locator('.session-meter').innerText()).includes(locale.format(vocabularyRoundLength)))
+  await capture('03-vocabulary')
   let expectedExample = false
   for (let attempt = 0; attempt < 18 && !expectedExample; attempt++) {
-    await page.locator('.session-choice').first().click()
+    await button('كتابة الإجابة').click()
+    await page.getByLabel('إجابتك').fill('Probe – falsche Antwort')
+    await button('تحقق من الإجابة').click()
+    await incorrectStatus()
     expectedExample = await page.locator('.session-examples p[lang=de][dir=ltr]').count() > 0 &&
       await page.locator('.session-examples p[lang=ar][dir=rtl]').count() > 0
     if (!expectedExample) await next()
@@ -294,7 +309,7 @@ try {
   {
     const names = {
       cloze: 'إكمال الجمل', flashcard: 'البطاقات', verb: 'تصريف الأفعال', grammar: 'القواعد', reading: 'القراءة',
-      order: 'ترتيب الجمل', case: 'الحالات الإعرابية', error: 'تصحيح الأخطاء', transform: 'تحويل الجمل', writing: 'الكتابة',
+      order: 'ترتيب الجمل', case: 'الحالات الإعرابية', error: 'تصحيح الأخطاء', transform: 'تحويل الجمل',
     }
     for (const [type, name] of Object.entries(names)) {
       const exercise = pack.questions.find(item => item.type === type &&
@@ -308,15 +323,19 @@ try {
       await chooseKinds([name])
       assert.equal(await available(), 1)
       await start()
+      if (type === 'verb') await capture('04-conjugation')
+      if (type === 'order') await capture('05-ordering')
+      if (type === 'reading') await capture('06-reading')
       if (type === 'flashcard') {
         await button('اقلب البطاقة').click()
         await button('أعرفها').click()
         await page.getByRole('status').filter({ hasText: 'بطاقة معروفة' }).waitFor()
-      } else if (type === 'writing') {
-        await page.getByLabel('اكتب بالألمانية').fill(exercise.model)
-        await button('تمّت المراجعة الذاتية').click()
       } else {
         if (type === 'order') {
+          const tiles = page.locator('[aria-label="المجموعات المتاحة"] button')
+          await tiles.first().dragTo(page.locator('.sentence-target'))
+          await button('إعادة ترتيب الكلمات').click()
+          assert.equal(await page.locator('.sentence-target button').count(), 0)
           for (const token of exercise.tokens) await page.locator('[aria-label="المجموعات المتاحة"]')
             .getByRole('button', { name: token, exact: true }).first().click()
           await button('تحقق من الإجابة').click()
@@ -330,8 +349,7 @@ try {
           await button('تحقق من الإجابة').click()
         } else await button(exercise.answers[0]).click()
         await correctStatus()
-        assert(await page.locator('.study-feedback p[lang=de][dir=ltr]').count())
-        assert(await page.locator('.study-feedback p[lang=ar][dir=rtl]').count())
+        assert.equal(await page.locator('.study-feedback .arabic-explanation').count(), 0)
       }
       await next()
       await page.getByRole('heading', { name: 'انتهى التدريب' }).waitFor()
@@ -339,8 +357,49 @@ try {
     }
 
     await home()
+    await chooseChapters('A1+', ['A1:1'])
+    await chooseKinds(['المطابقة'])
+    await start()
+    await page.locator('.matching-board').waitFor()
+    await capture('12-matching')
+    const getPlan = () => page.evaluate(() => new Promise((resolve, reject) => {
+      const opening = indexedDB.open('german-quiz-study', 1)
+      opening.onerror = () => reject(opening.error)
+      opening.onsuccess = () => {
+        const db = opening.result
+        const read = db.transaction('study', 'readonly').objectStore('study').get('practice-plan-v2')
+        read.onsuccess = () => { db.close(); resolve(read.result?.items[0]?.pairs) }
+        read.onerror = () => { db.close(); reject(read.error) }
+      }
+    }))
+    const pairs = await getPlan()
+    assert(pairs?.length >= 2)
+    for (const pair of pairs) {
+      await page.getByRole('group', { name: 'الكلمات الألمانية' }).getByRole('button', { name: pair.german, exact: true }).press('Enter')
+      await page.getByRole('group', { name: 'المعاني العربية' }).getByRole('button', { name: pair.arabic, exact: true }).click()
+    }
+    await page.evaluate(() => {
+      const put = IDBObjectStore.prototype.put
+      IDBObjectStore.prototype.put = function (value, key) {
+        const request = put.call(this, value, key)
+        if (key === 'practice-position-v2' && value.results?.length) {
+          IDBObjectStore.prototype.put = put
+          this.transaction.abort()
+        }
+        return request
+      }
+    })
+    await button('تحقق من الإجابة').click()
+    await correctStatus()
+    const failure = page.getByRole('alert').filter({ hasText: 'تعذّر حفظ النتيجة' })
+    await failure.waitFor()
+    await next()
+    await failure.waitFor({ state: 'hidden' })
+
+    await home()
     await chooseChapters('A1+ & A2+', ['A1:1', 'A1:3', 'A2:5'])
-    await chooseKinds(['القراءة', 'الكتابة'])
+    await chooseKinds(['القراءة', 'ترتيب الجمل'])
+    assert.equal(await checkbox('الكتابة').count(), 0)
     await radio('كل المتاح').check()
     assert.equal(await available(), 6)
     await page.reload()
@@ -361,22 +420,17 @@ try {
     const sessionKinds = new Set()
     for (let i = 0; i < 6; i++) {
       await shown('النشاط ' + locale.format(i + 1) + ' من ' + locale.format(6))
-      const isWriting = await page.getByLabel('اكتب بالألمانية').isVisible()
       const chapter = await page.locator('.chapter-context').innerText()
       const kind = await page.locator('.session-context .section-label').innerText()
-      const prompt = isWriting ? await page.locator('.session-layout h1').innerText() : await page.locator('.study-prompt').innerText()
+      const prompt = await page.locator('.study-prompt').count() ? await page.locator('.study-prompt').innerText() : kind
       unique.add([chapter, kind, prompt].join('|'))
       sessionChapters.add(chapter)
       sessionKinds.add(kind)
-      if (isWriting) {
-        await page.getByLabel('اكتب بالألمانية').fill('Probe.')
-        await button('تمّت المراجعة الذاتية').click()
-      } else {
-        await button('كتابة الإجابة').click()
-        await page.getByLabel('إجابتك').fill('wrong')
-        await button('تحقق من الإجابة').click()
-        await incorrectStatus()
-      }
+      await button('كتابة الإجابة').click()
+      await page.getByLabel('إجابتك').fill('wrong')
+      await button('تحقق من الإجابة').click()
+      await incorrectStatus()
+      await page.locator('.arabic-explanation').waitFor()
       await next()
     }
     assert.equal(unique.size, 6)
@@ -384,7 +438,7 @@ try {
     assert.equal(sessionKinds.size, 2)
     await page.getByRole('heading', { name: 'انتهى التدريب' }).waitFor()
     await button('أعد تدريب الأخطاء').click()
-    await shown('النشاط ١ من ٣')
+    await shown('النشاط ١ من ٦')
     assert.equal(await page.getByLabel('اكتب بالألمانية').count(), 0)
 
     for (const id of ['A1:1', 'A2:8']) {
@@ -401,10 +455,47 @@ try {
     await go('chapters')
     await button('تقييم الفصل').click()
     await page.locator('.chapter-context:visible').filter({ hasText: 'A2+' }).waitFor()
+    await go('mistakes')
+    await page.getByRole('heading', { name: 'دفتر الأخطاء', exact: true }).waitFor()
+    await capture('07-notebook')
+    await page.getByRole('searchbox', { name: 'بحث في الأخطاء' }).fill('wrong')
+    await page.locator('.notebook-list li button').first().click()
+    await page.locator('.mistake-facts').filter({ hasText: 'wrong' }).waitFor()
+    await capture('08-mistake-detail')
+    await page.reload()
+    await page.getByRole('searchbox', { name: 'بحث في الأخطاء' }).fill('wrong')
+    await page.locator('.notebook-list li button').first().click()
+    await page.locator('.mistake-facts').filter({ hasText: 'wrong' }).waitFor()
     await go('progress')
-    await page.getByRole('heading', { name: 'لوحة التقدم' }).waitFor()
-    await page.getByRole('heading', { name: 'التقدّم حسب الفصل' }).waitFor()
+    await page.getByRole('heading', { name: 'تحليلات التقدّم' }).waitFor()
+    await page.getByLabel('المقياس').selectOption('answers')
+    const chart = page.locator('.chart-column').first()
+    await chart.focus()
+    await page.keyboard.press('Enter')
+    assert.equal(await chart.getAttribute('aria-pressed'), 'true')
+    const workload = page.getByRole('group', { name: 'أفق المراجعة' })
+    await workload.getByRole('button', { name: '٣٠ يومًا', exact: true }).click()
+    await shown('قادمة خلال ٣٠ يومًا')
+    await capture('09-analytics')
+    await page.setViewportSize({ width: 390, height: 840 })
+    await noOverflow()
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await page.locator('.related-mistakes').first().click()
+    await page.getByRole('heading', { name: 'دفتر الأخطاء', exact: true }).waitFor()
+    assert(page.url().includes('#/mistakes?'))
+    assert(await page.locator('.notebook-list li button').count())
     await settings()
+    await button('داكن').click()
+    assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark')
+    await page.getByLabel('المحاولات اليومية').selectOption('10')
+    await capture('10-settings-dark')
+    await page.setViewportSize({ width: 390, height: 840 })
+    await noOverflow()
+    await capture('11-settings-mobile')
+    await page.reload()
+    await page.getByLabel('المحاولات اليومية').waitFor()
+    assert.equal(await page.getByLabel('المحاولات اليومية').inputValue(), '10')
+    assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark')
     await shown('النسخ الاحتياطي والاستعادة')
     await page.getByText('النسخ الاحتياطي والاستعادة', { exact: true }).click()
     const saveProgress = page.waitForEvent('download')
@@ -412,11 +503,12 @@ try {
     const progressArchive = await readFile(await (await saveProgress).path())
     const history = JSON.parse(progressArchive)
     assert(history.events.length >= 17)
-    assert(history.events.some(event => event.type === 'writing' && event.result === 'completed'))
+    assert(!history.events.some(event => event.type === 'writing'))
+    assert(history.events.some(event => event.answer === 'wrong' && event.evidenceVersion === 2))
     assert(history.events.some(event => event.chapter === 'A2:5' && event.result === 'incorrect'))
     await page.locator('#study-progress-file').setInputFiles({ name: 'progress.json', mimeType: 'application/json', buffer: progressArchive })
     await shown('تم دمج سجلات التقدم المحفوظة.')
-    console.log('All ten activities, vocabulary, mixed chapters, results, retry, and progress backup passed.')
+    console.log('Specialized activities, mixed chapters, dashboard, analytics, notebook, and progress backup passed.')
   }
 
   const profileRoot = tmpdir()

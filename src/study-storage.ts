@@ -37,28 +37,60 @@ export async function readStudyRecord(key: string, factory = indexedDB): Promise
 }
 
 export async function updateStudyRecord<T>(key: string, modify: (previous: unknown) => T, factory = indexedDB): Promise<T> {
+  const [updated] = await updateStudyRecords([key], ([previous]) => [modify(previous)], factory)
+  return updated as T
+}
+
+export async function updateStudyRecords(keys: readonly string[], modify: (previous: unknown[]) => unknown[], factory = indexedDB) {
   const database = await openStudyDatabase(factory)
   try {
-    return await new Promise((resolve, reject) => {
+    return await new Promise<unknown[]>((resolve, reject) => {
       const transaction = database.transaction(storeName, 'readwrite')
       const store = transaction.objectStore(storeName)
-      let updated: T
+      const records: unknown[] = Array(keys.length)
+      let remaining = keys.length
+      let updated: unknown[]
       let failure: unknown
       transaction.oncomplete = () => resolve(updated)
       transaction.onabort = () => reject(failure ?? transaction.error)
-      const previous = store.get(key)
-      previous.onerror = () => { failure = previous.error }
-      previous.onsuccess = () => {
-        try {
-          const stored = previous.result ?? null
-          updated = modify(stored)
-          if (updated === stored) return
-          const request = store.put(updated, key)
-          request.onerror = () => { failure = request.error }
-        } catch (error) {
-          failure = error
-          transaction.abort()
+      keys.forEach((key, index) => {
+        const read = store.get(key)
+        read.onerror = () => { failure = read.error }
+        read.onsuccess = () => {
+          records[index] = read.result ?? null
+          if (--remaining !== 0) return
+          try {
+            updated = modify(records)
+            for (const [i, value] of updated.entries()) {
+              if (value === records[i]) continue
+              const write = store.put(value, keys[i])
+              write.onerror = () => { failure = write.error }
+            }
+          } catch (error) {
+            failure = error
+            transaction.abort()
+          }
         }
+      })
+    })
+  } finally {
+    database.close()
+  }
+}
+
+export async function writeStudyRecords(entries: readonly (readonly [string, unknown])[], factory = indexedDB) {
+  const database = await openStudyDatabase(factory)
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(storeName, 'readwrite')
+      transaction.oncomplete = () => resolve()
+      transaction.onabort = () => reject(transaction.error)
+      const store = transaction.objectStore(storeName)
+      try {
+        for (const [key, value] of entries) store.put(value, key)
+      } catch (error) {
+        transaction.abort()
+        reject(error)
       }
     })
   } finally {

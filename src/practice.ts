@@ -9,7 +9,7 @@ import { loadQuizSettings } from './storage.ts'
 import { selectableTypes } from './question-types.ts'
 
 export const activities = {
-  vocabulary: 'المفردات', nouns: 'الأدوات والجمع', flashcard: 'البطاقات', verb: 'تصريف الأفعال',
+  vocabulary: 'المفردات', matching: 'المطابقة', nouns: 'الأدوات والجمع', flashcard: 'البطاقات', verb: 'تصريف الأفعال',
   cloze: 'إكمال الجمل', grammar: 'القواعد', case: 'الحالات الإعرابية', order: 'ترتيب الجمل',
   error: 'تصحيح الأخطاء', transform: 'تحويل الجمل', reading: 'القراءة', writing: 'الكتابة',
 } as const
@@ -25,6 +25,7 @@ export type Candidate = {
   part?: PartOfSpeech
   origin: StudyQuestion['origin']
   variant?: string
+  searchText?: string
   make: () => StudyQuestion
 }
 export type Focus = 'all' | 'new' | 'missed' | 'due'
@@ -99,7 +100,7 @@ export function loadPracticePreferences(text: string | null, legacy: string | nu
       scope: ['A1', 'A2', 'all'].includes(saved.scope) ? saved.scope : defaults.scope,
       chapters,
       activities: Array.isArray(saved.activities) ? [...new Set<Activity>(saved.activities.filter((id: unknown) =>
-        typeof id === 'string' && Object.hasOwn(activities, id)))] : null,
+        typeof id === 'string' && id !== 'writing' && Object.hasOwn(activities, id)))] : null,
       count: saved.count === 'all' || isQuestionCount(saved.count) ? saved.count : defaults.count,
       reliability: saved.reliability === 'with-automatic' ? 'with-automatic' : 'reviewed',
       direction: ['de-ar', 'ar-de'].includes(saved.direction) ? saved.direction : 'all',
@@ -123,7 +124,7 @@ export function fromStudyQuestion(item: StudyQuestion): Candidate {
   const instruction = item.type === 'writing' || item.type === 'reading' ? item.instruction : ''
   const key = item.origin === 'vocabulary' ? item.id : JSON.stringify([item.type, prompt, answer, instruction])
   return { id: item.id, key, chapter: item.chapter, activity: item.type, origin: item.origin,
-    topic: item.topic, part: item.part, make: () => item }
+    topic: item.topic, part: item.part, searchText: [item.prompt, item.german, item.arabic, item.instruction].join(' '), make: () => item }
 }
 
 export function questionGroups(pool: readonly Candidate[]) {
@@ -140,7 +141,7 @@ export function eligiblePractice(pool: readonly Candidate[], chapters: readonly 
   practiced: ReadonlySet<string>, schedule: ReadonlyMap<string, { due: number; needsReview: boolean }>, now = Date.now()) {
   const chapterSet = new Set<string>(chapters)
   const applied = new Set<Activity>(['order', 'reading', 'writing', 'error', 'transform'])
-  return pool.filter(item => chapterSet.has(item.chapter) && (!prefs.topic || prefs.topic === item.topic) &&
+  return pool.filter(item => item.activity !== 'writing' && chapterSet.has(item.chapter) && (!prefs.topic || prefs.topic === item.topic) &&
     (prefs.part === 'all' || prefs.part === item.part) &&
     (prefs.difficulty === 'all' || (prefs.difficulty === 'applied') === applied.has(item.activity)) &&
     (prefs.direction === 'all' || !item.variant?.includes(':') || item.variant.endsWith(':' + prefs.direction)) &&

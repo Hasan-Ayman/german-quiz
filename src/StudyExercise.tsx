@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Icon } from './icons'
 import { studyTypeLabels } from './study-labels'
-import { checkStudyAnswer, shuffled, shuffledStudyTokens } from './study-engine'
+import { checkStudyAnswer, shuffled } from './study-engine'
 import type { StudyQuestion } from './study-content'
 import { StudySpeech } from './StudySpeech'
+import { MatchingBoard, OrderBoard } from './ExerciseTools'
+import { presentPronouns } from './question-types'
 
 import type { StudyResult } from './study-progress'
 import { initialPosition, type PracticePosition } from './practice-session'
@@ -23,114 +25,129 @@ function Question({ item, next, onResult, onRule, savedResult, savedResponse }: 
   const feedback = useRef<HTMLElement>(null)
   useEffect(() => { if (marked) feedback.current?.focus({ preventScroll: true }) }, [marked])
   const [revealed, setRevealed] = useState(false)
-  const [typed, setTyped] = useState(!item.choices && !item.tokens)
+  const [typed, setTyped] = useState(item.support === 'recall' && !['reading', 'order'].includes(item.type) || !item.choices && !item.tokens)
   const [foundError, setFoundError] = useState(item.errorIndex === undefined)
   const [locationAttempt, setLocationAttempt] = useState(false)
-  const [tokens] = useState(() => shuffledStudyTokens(item.tokens ?? []))
-  const [ordered, setOrdered] = useState<number[]>([])
-  const [choices] = useState(() => shuffled(item.choices ?? []))
+  const [choices] = useState(() => {
+    const supplied = shuffled(item.choices ?? [])
+    if (item.support !== 'guided' || supplied.length < 4) return supplied
+    const distractor = supplied.find(value => !checkStudyAnswer(item, value))
+    return supplied.filter(value => value !== distractor)
+  })
   const answerLanguage = item.answerLanguage ?? (item.type === 'reading' || item.type === 'flashcard' ? 'ar' : 'de')
+  const incorrect = marked === 'incorrect' || marked === 'missed'
+  const exercise = item.activity ?? item.type
+  const locked = useRef(Boolean(savedResult))
 
   function mark(result: StudyResult, value = response) {
+    if (locked.current) return
+    locked.current = true
     setMarked(result)
     onResult(result, value)
   }
-
   function grade(value: string) {
     setResponse(value)
     mark(checkStudyAnswer(item, value) ? 'correct' : 'incorrect', value)
   }
-
   function submit(event: FormEvent) {
     event.preventDefault()
     if (response.trim()) grade(response)
   }
 
-  if (item.type === 'writing') {
-    return <section className="panel study-flow" aria-label="التعبير الكتابي">
-      <h1 tabIndex={-1}>{item.instruction}</h1>
-      <label htmlFor="study-writing">اكتب بالألمانية</label>
-      <textarea id="study-writing" rows={5} lang="de" dir="ltr" spellCheck={false}
-        value={response} onChange={event => setResponse(event.target.value)} />
-      {(response.trim() || marked) && <details>
-        <summary>نموذج للمقارنة</summary>
-        <p lang="de" dir="ltr">{item.model}</p>
-        <p lang="ar" dir="rtl">{item.passageArabic}</p>
-        <p>قارن إجابتك بالنموذج. راجع ترتيب الكلمات، وتصريف الفعل، وكتابة الأسماء بحروف كبيرة.</p>
-      </details>}
-      <p className="study-source">التقييم ذاتي في هذا النشاط.</p>
-      {marked ? <button type="button" className="button primary" onClick={next}>النشاط التالي</button>
-        : <button type="button" className="button primary" disabled={!response.trim()} onClick={() => mark('completed')}>تمّت المراجعة الذاتية</button>}
-    </section>
-  }
-
-  return <section className="panel study-flow" aria-label="نشاط الدراسة">
+  return <section className={'panel study-flow learning-exercise exercise-' + exercise} aria-label="نشاط الدراسة">
     <h1 tabIndex={-1}>{item.instruction}</h1>
-    {!foundError && !marked ? <div className="study-flow">
-      <p>حدّد الكلمة التي تحتاج إلى تصحيح.</p>
-      <div className="study-word-bank" lang="de" dir="ltr">{[...item.prompt.matchAll(/\S+/gu)].map(word =>
-        <button className="button secondary" type="button" key={word.index} onClick={() => {
-          setLocationAttempt(true)
-          setFoundError(word.index <= item.errorIndex! && item.errorIndex! < word.index + word[0].length)
-        }}>{word[0]}</button>)}</div>
-      {locationAttempt && <p role="status">راجع القاعدة وحاول تحديد الكلمة مرة أخرى.</p>}
-      <button type="button" className="button secondary" onClick={() => setFoundError(true)}>الانتقال إلى التصحيح</button>
-    </div> : item.prompt && <p className="study-prompt"><LocalText text={item.prompt} lang={item.promptLanguage} /></p>}
-    {item.hint && <p className="study-source"><LocalText text={item.hint.text} lang={item.hint.lang} /></p>}
-    {!marked && foundError && (item.type === 'flashcard'
-      ? revealed ? <><p><LocalText text={item.answers.join(' / ')} lang={answerLanguage} /></p>
-        <div className="study-actions"><button className="button primary" onClick={() => mark('known')}>أعرفها</button>
-          <button className="button secondary" onClick={() => mark('missed')}>أحتاج إلى مراجعتها</button></div></>
-        : <button className="button secondary" onClick={() => setRevealed(true)}>اقلب البطاقة</button>
-      : <>
-        {(item.choices || item.tokens) && <button className="text-button" onClick={() => setTyped(value => !value)}>
-          {typed ? 'إظهار الخيارات' : 'كتابة الإجابة'}
-        </button>}
-        {typed ? <form className="study-flow" onSubmit={submit}>
-          <label htmlFor="study-answer">إجابتك</label>
-          <input id="study-answer" type="text" lang={answerLanguage} dir={answerLanguage === 'de' ? 'ltr' : 'rtl'}
-            autoComplete="off" spellCheck={false} value={response} onChange={event => setResponse(event.target.value)} />
-          <button className="button primary" disabled={!response.trim()}>تحقق من الإجابة</button>
-        </form> : item.tokens ? <div className="study-flow">
-          <div className="study-word-bank" dir="ltr" lang="de" aria-label="الترتيب المختار">
-            {ordered.map((index, position) => <button key={index} className="button secondary"
-              onClick={() => setOrdered(items => items.filter((_, i) => i !== position))}>{item.tokens![index]}</button>)}
-          </div>
-          <div className="study-word-bank" dir="ltr" lang="de" aria-label="المجموعات المتاحة">
-            {tokens.filter(token => !ordered.includes(token.i)).map(token => <button key={token.i} className="button secondary"
-              onClick={() => setOrdered(items => [...items, token.i])}>{token.text}</button>)}
-          </div>
-          <button type="button" className="button primary" disabled={ordered.length !== item.tokens.length}
-            onClick={() => grade(ordered.map(index => item.tokens![index]).join(' '))}>تحقق من الإجابة</button>
-        </div> : null}
-        {!typed && !item.tokens && <AnswerChoices choices={choices} language={answerLanguage} select={grade} />}
-      </>)}
-    {marked && !typed && choices.length > 0 && <AnswerChoices choices={choices} language={answerLanguage}
-      response={response} correct={item.answers} />}
-    {marked && <div className={'study-flow study-feedback ' + (marked === 'incorrect' || marked === 'missed' ? 'feedback-missed' : 'feedback-known')} role="status">
-      <strong tabIndex={-1} ref={feedback}>{marked === 'correct' ? 'إجابة صحيحة' : marked === 'incorrect' ? 'إجابة غير صحيحة'
-        : marked === 'known' ? 'بطاقة معروفة' : marked === 'missed' ? 'بطاقة للمراجعة' : 'اكتمل النشاط'}</strong>
-      {response && <p>إجابتك: <LocalText text={response} lang={answerLanguage} /></p>}
-      <p>الإجابة: <LocalText text={item.answers.join(' / ')} lang={answerLanguage} /></p>
-      {item.explanation && <p lang="ar" dir="rtl">{item.explanation}</p>}
-      <p lang="de" dir="ltr">{item.german}</p>
-      <p lang="ar" dir="rtl">{item.arabic}</p>
-      {Boolean(item.examples?.length) && <div className="session-examples">
-        <strong>أمثلة في السياق</strong>
-        {item.examples!.map(example => <div key={example.german}>
-          <p lang="de" dir="ltr">{example.german}</p>
-          {example.arabic && <p lang="ar" dir="rtl">{example.arabic}</p>}
-          {example.origin === 'source_pdf' && <small className="study-source"><bdi dir="ltr">{example.sourcePdf}</bdi> · صفحة {number.format(example.page)}</small>}
-        </div>)}
-      </div>}
-      {item.type === 'reading' && item.passageArabic && <details><summary>ترجمة النص</summary>
-        <p lang="ar" dir="rtl">{item.passageArabic}</p></details>}
-      {item.type === 'reading' && <StudySpeech german={item.prompt} />}
-      <p className="study-source">المصدر <bdi dir="ltr">{item.source.document}</bdi> · صفحة PDF {number.format(item.source.page)}</p>
-      {item.topic && onRule && <button type="button" className="button secondary" onClick={onRule}>تدرّب على هذه القاعدة</button>}
-      <button type="button" className="button primary" onClick={next}>النشاط التالي</button>
-    </div>}
+    <div className={item.type === 'reading' ? 'reading-spread' : 'study-flow'}>
+      {item.type === 'reading' && <article className="reading-paper" aria-label="نص القراءة">
+        <p lang="de" dir="ltr" className="study-prompt">{item.prompt}</p>
+        <StudySpeech german={item.prompt} />
+      </article>}
+      <div className="study-flow exercise-body">
+        {!foundError && !marked ? <div className="study-flow">
+          <p>حدّد الكلمة التي تحتاج إلى تصحيح.</p>
+          <div className="study-word-bank" lang="de" dir="ltr">{[...item.prompt.matchAll(/\S+/gu)].map(word =>
+            <button className="button secondary" type="button" key={word.index} onClick={() => {
+              setLocationAttempt(true)
+              setFoundError(word.index <= item.errorIndex! && item.errorIndex! < word.index + word[0].length)
+            }}>{word[0]}</button>)}</div>
+          {locationAttempt && <p role="status">حاول تحديد موضع الخطأ مرة أخرى.</p>}
+          <button type="button" className="button secondary" onClick={() => setFoundError(true)}>الانتقال إلى التصحيح</button>
+        </div> : item.prompt && !['reading', 'matching', 'flashcard'].includes(item.type) && <Prompt item={item} />}
+        {item.hint && <p className="study-source"><LocalText text={item.hint.text} lang={item.hint.lang} /></p>}
+        {!marked && foundError && (item.type === 'flashcard'
+          ? <div className="flip-study-card">
+            <div className="flip-card-face" aria-live="polite">
+              <span>{revealed ? 'ظهر البطاقة' : 'وجه البطاقة'}</span>
+              <strong><LocalText text={revealed ? item.answers.join(' / ') : item.prompt}
+                lang={revealed ? answerLanguage : item.promptLanguage} /></strong>
+            </div>
+            {revealed ? <div className="study-actions">
+              <button type="button" className="button primary" onClick={() => mark('known')}>أعرفها</button>
+              <button type="button" className="button secondary" onClick={() => mark('missed')}>أحتاج إلى مراجعتها</button>
+            </div> : <button type="button" className="button secondary" onClick={() => setRevealed(true)}>اقلب البطاقة</button>}
+          </div> : item.pairs ? <MatchingBoard pairs={item.pairs} submit={grade} /> : <>
+            {(item.choices || item.tokens) && <button className="text-button" type="button" onClick={() => setTyped(value => !value)}>
+              {typed ? 'إظهار الخيارات' : 'كتابة الإجابة'}
+            </button>}
+            {typed ? <form className="study-flow short-answer" onSubmit={submit}>
+              <label htmlFor="study-answer">إجابتك</label>
+              <input id="study-answer" type="text" lang={answerLanguage} dir={answerLanguage === 'de' ? 'ltr' : 'rtl'}
+                autoComplete="off" spellCheck={false} maxLength={1000} value={response} onChange={event => setResponse(event.target.value)} />
+              <button className="button primary" disabled={!response.trim()}>تحقق من الإجابة</button>
+            </form> : item.tokens ? <OrderBoard tokens={item.tokens} submit={grade} /> :
+              <AnswerChoices choices={choices} language={answerLanguage} select={grade} />}
+          </>)}
+        {marked && !typed && choices.length > 0 && <AnswerChoices choices={choices} language={answerLanguage}
+          response={response} correct={item.answers} />}
+        {marked && <div className={'study-flow study-feedback ' + (incorrect ? 'feedback-missed' : 'feedback-known')} role="status">
+          <strong tabIndex={-1} ref={feedback}>{marked === 'correct' ? 'إجابة صحيحة' : marked === 'incorrect' ? 'إجابة غير صحيحة'
+            : marked === 'known' ? 'بطاقة معروفة' : 'بطاقة للمراجعة'}</strong>
+          {incorrect && <>
+            {response && <p>إجابتك: <LocalText text={response} lang={answerLanguage} /></p>}
+            {item.pairs ? <ul>{item.pairs.map(pair => <li key={pair.german}><LocalText text={pair.german} /> · {pair.arabic}</li>)}</ul> :
+              <p>الإجابة: <LocalText text={item.answers.join(' / ')} lang={answerLanguage} /></p>}
+            <p className="arabic-explanation" lang="ar" dir="rtl">{item.explanation || 'لا يتوفر شرح موثّق لهذا السؤال. قارن إجابتك بالإجابة المعتمدة.'}</p>
+            {item.german && <p lang="de" dir="ltr">{item.german}</p>}
+            {item.arabic && <p lang="ar" dir="rtl">{item.arabic}</p>}
+            {Boolean(item.examples?.length) && <div className="session-examples">
+              <strong>مثال في السياق</strong>
+              {item.examples!.slice(0, 1).map(example => <div key={example.german}>
+                <p lang="de" dir="ltr">{example.german}</p>
+                {example.arabic && <p lang="ar" dir="rtl">{example.arabic}</p>}
+                {example.origin === 'source_pdf' && <small className="study-source"><bdi dir="ltr">{example.sourcePdf}</bdi> · صفحة {number.format(example.page)}</small>}
+              </div>)}
+            </div>}
+            {item.type === 'reading' && item.passageArabic && <details><summary>ترجمة النص</summary>
+              <p lang="ar" dir="rtl">{item.passageArabic}</p></details>}
+            <p className="study-source">المصدر <bdi dir="ltr">{item.source.document}</bdi> · صفحة PDF {number.format(item.source.page)}</p>
+            <div className="study-actions">
+              {item.topic && onRule && <button type="button" className="button secondary" onClick={onRule}>تدرّب على هذه القاعدة</button>}
+              <a className="text-button" href={'#/mistakes?item=' + encodeURIComponent(item.id)}>افتح دفتر الأخطاء</a>
+            </div>
+          </>}
+          <button type="button" className="button primary" onClick={next}>النشاط التالي</button>
+        </div>}
+      </div>
+    </div>
   </section>
+}
+
+function Prompt({ item }: { item: StudyQuestion }) {
+  const isVerb = item.type === 'verb'
+  const [base, pronoun, ...rest] = item.prompt.split(' · ')
+  if (isVerb && rest.length === 0 && presentPronouns.some(value => value === pronoun)) {
+    return <dl className="verb-conjugation-grid">
+      <div><dt>المصدر</dt><dd><LocalText text={base} /></dd></div>
+      <div><dt>الضمير</dt><dd><LocalText text={pronoun} /></dd></div>
+      <div><dt>التصريف المطلوب</dt><dd className="sentence-gap" dir="ltr">___</dd></div>
+    </dl>
+  }
+  const hasGap = /_{2,}/u.test(item.prompt)
+  return <div className={'study-prompt ' + (isVerb ? 'verb-form-sheet' : hasGap ? 'gap-sheet' : '')}
+    lang={item.promptLanguage ?? 'de'} dir={item.promptLanguage === 'ar' ? 'rtl' : 'ltr'}>
+    {isVerb && <small lang="ar" dir="rtl">صيغة الفعل</small>}
+    <span className="prompt-content">{hasGap ? item.prompt.split(/(_{2,})/u).map((part, i) => i % 2 ? <span key={i} className="sentence-gap" aria-label="فراغ">{part}</span> : part) :
+      <LocalText text={item.prompt} lang={item.promptLanguage} />}</span>
+  </div>
 }
 
 function AnswerChoices({ choices, language, select, response, correct }: {
@@ -151,12 +168,15 @@ function AnswerChoices({ choices, language, select, response, correct }: {
 }
 
 export function StudyExercise({ items, close, onResult, onRule, onRetry, position = initialPosition, onPosition }: {
-  items: StudyQuestion[]; close: () => void; onResult?: (question: StudyQuestion, result: StudyResult) => void
+  items: StudyQuestion[]; close: () => void; onResult?: (question: StudyQuestion, result: StudyResult, answer: string, position: PracticePosition) => Promise<boolean>
   onRule?: (question: StudyQuestion) => void; onRetry?: (items: StudyQuestion[]) => void
   position?: PracticePosition; onPosition?: (position: PracticePosition) => void
 }) {
   const [current, setCurrent] = useState(position)
   const { index, results, response } = current
+  const pending = useRef<Promise<boolean> | null>(null)
+  const saveAgain = useRef<(() => Promise<boolean>) | null>(null)
+  const advancing = useRef(false)
   function update(value: PracticePosition) {
     setCurrent(value)
     onPosition?.(value)
@@ -167,7 +187,6 @@ export function StudyExercise({ items, close, onResult, onRule, onRetry, positio
   const scored = results.filter(result => result === 'correct' || result === 'incorrect')
   const correct = scored.filter(result => result === 'correct').length
   const known = results.filter(result => result === 'known').length
-  const writing = results.filter(result => result === 'completed').length
   const mistakes = items.filter((_, i) => results[i] === 'incorrect' || results[i] === 'missed')
 
   useEffect(() => {
@@ -200,9 +219,23 @@ export function StudyExercise({ items, close, onResult, onRule, onRetry, positio
       </div>
       <Question key={item.id} item={item} onRule={onRule ? () => onRule(item) : undefined}
         savedResult={results[index]} savedResponse={response}
-        next={() => update({ index: index + 1, results, response: '' })} onResult={(result, answer) => {
-          update({ index, results: [...results, result], response: answer })
-          onResult?.(item, result)
+        next={() => {
+          if (advancing.current) return
+          advancing.current = true
+          void (pending.current ?? Promise.resolve(true)).then(async saved => {
+            if (!saved && saveAgain.current) saved = await saveAgain.current()
+            if (saved) {
+              pending.current = null
+              saveAgain.current = null
+              update({ index: index + 1, results, response: '' })
+            }
+          }).finally(() => { advancing.current = false })
+        }} onResult={(result, answer) => {
+          const position = { index, results: [...results, result], response: answer }
+          if (!onResult) { update(position); return }
+          setCurrent(position)
+          saveAgain.current = () => onResult(item, result, answer, position)
+          pending.current = saveAgain.current()
         }} />
     </> : <section className="panel session-results study-flow">
       <span className="practice-symbol"><Icon name="check" size={25} /></span>
@@ -214,7 +247,6 @@ export function StudyExercise({ items, close, onResult, onRule, onRetry, positio
           <div><dt>الدقّة</dt><dd>{number.format(Math.round(correct * 100 / scored.length))}٪</dd></div>
         </>}
         {results.some(result => result === 'known' || result === 'missed') && <div><dt>البطاقات المعروفة</dt><dd>{number.format(known)}</dd></div>}
-        {writing > 0 && <div><dt>تمارين الكتابة المكتملة</dt><dd>{number.format(writing)}</dd></div>}
       </dl>
       {mistakes.length > 0 && <details open>
         <summary>مراجعة الأخطاء · {number.format(mistakes.length)}</summary>

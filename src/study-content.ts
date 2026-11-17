@@ -1,3 +1,4 @@
+import type { Activity } from './practice.ts'
 import { isLevel, type ExampleSentence, type Level, type PartOfSpeech } from './pilot.ts'
 
 export const studyTypes = ['cloze', 'flashcard', 'verb', 'grammar', 'reading',
@@ -42,7 +43,10 @@ export interface StudyQuestion extends Omit<StudyLesson, 'title' | 'origin' | 'v
   promptLanguage?: 'de' | 'ar'
   answerLanguage?: 'de' | 'ar'
   id: string
-  type: StudyType
+  type: StudyType | 'matching'
+  activity?: Activity
+  support?: 'guided' | 'standard' | 'recall'
+  pairs?: { german: string; arabic: string; source: StudyReference }[]
   prompt: string
   instruction: string
   answers: string[]

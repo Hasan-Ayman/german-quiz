@@ -36,7 +36,7 @@ export function vocabularyCandidates(bank: PersonalQuiz, scope: Scope, expanded:
     return [...refs].map(([chapter, ref]): Candidate => {
       const id = 'study:' + fact.id + ':' + chapter
       return { id, chapter, key: 'word:' + germanKey(entry.german), activity, topic: '', part: entry.part_of_speech,
-        origin: 'vocabulary', variant: factType(fact), make: (): StudyQuestion => {
+        origin: 'vocabulary', variant: factType(fact), searchText: fact.prompt.text + ' ' + entry.german + ' ' + entry.arabic_translations.join(' '), make: (): StudyQuestion => {
           const examples = feedbackExamples(entry.examples.filter(example => example.level === ref.level), ref.level)
           if (fact.exampleGerman) examples.sort((a, b) => Number(b.german === fact.exampleGerman) - Number(a.german === fact.exampleGerman))
           return {
