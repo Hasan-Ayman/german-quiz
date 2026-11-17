@@ -6,6 +6,7 @@ import { loadPersonalDataset, savePersonalDataset } from './personal-storage'
 import { useAppUpdate } from './pwa'
 import { VocabularyFile } from './VocabularyFile'
 import { QuizFilters } from './QuizFilters'
+import { StudyPage } from './StudyPage'
 import { grammarTypes, isGrammarMode } from './question-types'
 import { feedbackExamples, isLevel, isReliability, levels, type ExampleSentence, type Level, type PilotEntry } from './pilot'
 import {
@@ -33,11 +34,11 @@ function modeDetails(mode: Mode) {
   return { ...style, name, instruction }
 }
 
-type Screen = 'home' | 'quiz' | 'results' | 'review' | 'vocabulary'
+type Screen = 'home' | 'quiz' | 'results' | 'review' | 'vocabulary' | 'study'
 
 function readScreen(): Screen {
   const name = window.location.hash.slice(2)
-  return name === 'quiz' || name === 'results' || name === 'review' || name === 'vocabulary' ? name : 'home'
+  return name === 'quiz' || name === 'results' || name === 'review' || name === 'vocabulary' || name === 'study' ? name : 'home'
 }
 
 function subscribeScreen(callback: () => void) {
@@ -489,6 +490,7 @@ export function QuizApp({ bank, fileControls }: { bank: PersonalQuiz; fileContro
 }
 
 export default function App() {
+  const screen = useSyncExternalStore(subscribeScreen, readScreen, () => 'home' as const)
   const [theme, setTheme] = useState(loadTheme)
   const [bank, setBank] = useState<PersonalQuiz | null>(null)
   const [loading, setLoading] = useState(true)
@@ -540,16 +542,19 @@ export default function App() {
             <span className="brand-mark"><Icon name="book" size={23} /></span>
             <span><strong>مفردات</strong><small lang="de" dir="ltr">DEUTSCH QUIZ</small></span>
           </a>
+          <div className="site-tools">
+          <a className="study-link" href="#/study">مركز الدراسة</a>
           <button className="theme-button" type="button" onClick={() => setTheme(value => value === 'light' ? 'dark' : 'light')}
             aria-label={themeLabel} title={themeLabel}>
             <Icon name={theme === 'light' ? 'moon' : 'sun'} size={21} />
           </button>
+          </div>
         </div>
       </header>
       {applyUpdate && <aside className="site-container app-update" aria-label="تحديث التطبيق">
         <button type="button" className="button secondary" onClick={applyUpdate}>تثبيت تحديث التطبيق</button>
       </aside>}
-      {bank ? <QuizApp key={importSequence} bank={bank} fileControls={fileControls} />
+      {screen === 'study' ? <StudyPage /> : bank ? <QuizApp key={importSequence} bank={bank} fileControls={fileControls} />
         : <main className="site-container main-content screen-home">
           {loading ? <p role="status">جارٍ فتح مكتبة المفردات…</p> : fileControls}
         </main>}

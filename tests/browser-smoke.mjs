@@ -191,6 +191,27 @@ try {
     await page.getByText('اختر صيغة الجمع كما وردت في المصدر', { exact: true }).waitFor()
   }
 
+  if (process.env.GERMAN_QUIZ_STUDY_AUDIT) {
+    const path = join(process.env.GERMAN_QUIZ_STUDY_AUDIT, 'german-quiz-study-private.json')
+    await page.getByRole('link', { name: 'مركز الدراسة', exact: true }).click()
+    await page.getByRole('heading', { name: 'مركز الدراسة' }).waitFor()
+    await page.getByText('استورد ملف حزمة الدراسة لعرض الفصول والأنشطة.', { exact: false }).waitFor()
+    await page.locator('#study-import').setInputFiles(path)
+    await page.getByText('فصلًا محمّلًا', { exact: false }).waitFor()
+    await page.getByLabel('الفصل', { exact: true }).selectOption('A2:12')
+    await page.getByRole('heading', { name: JSON.parse(await readFile(path, 'utf8')).chapters.find(item => item.id === 'A2:12').title }).waitFor()
+    await page.getByRole('button', { name: 'التدريب الحر', exact: true }).click()
+    await page.getByLabel('المستوى', { exact: true }).selectOption('A1')
+    await page.getByLabel('نوع التدريب', { exact: true }).selectOption('reading')
+    await page.getByRole('status').filter({ hasText: '١٢ نشاطًا' }).waitFor()
+    await page.reload()
+    await page.getByLabel('الفصل', { exact: true }).waitFor()
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+    await page.getByRole('link', { name: 'اختبار المفردات', exact: true }).click()
+    await page.getByRole('heading', { name: vocabularySection }).waitFor()
+    console.log('Private study import, chapter navigation, filtering, offline persistence and vocabulary compatibility passed.')
+  }
+
   const fresh = await browser.newContext({ viewport: { width: 1280, height: 850 } })
   const transferPage = await fresh.newPage()
   await transferPage.goto(appUrl)

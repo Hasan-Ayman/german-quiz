@@ -33,3 +33,8 @@ Phase 1 inventories the authoritative source pages and pairs printed chapter bou
 - Added versioned study-pack validation and local answer checking. Existing v1/v2 vocabulary format and IndexedDB schema are untouched.
 - Study data uses a separate IndexedDB database. The browser test verified isolated writes, a failed transaction preserving its previous record, and five serialized concurrent writes.
 - Tests: 57 passed with the real files, 10 baseline-only fixture tests skipped. Production build and browser regression passed.
+
+## Phase 4 — Chapter and free-practice navigation
+
+- Added a separate study route, private pack import, chapter overviews and level, chapter, skill, and topic filters. Existing vocabulary routes remain available.
+- Tests: 57 passed with real fixtures, 10 baseline-only fixtures skipped. Production build and offline mobile browser checks passed, including both a chapter selection and free-practice filtering.
