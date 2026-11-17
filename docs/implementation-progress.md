@@ -27,3 +27,9 @@ Phase 1 inventories the authoritative source pages and pairs printed chapter bou
 - Authored material carries the actual chapter overview reference and a separate editorial-check status. Machine-extracted page text and unreviewed content remain in the private archive. The original v1/v2 files are unchanged.
 - Checks: 54 release-checkout tests passed with the real source and vocabulary files, 10 baseline-only snapshot tests skipped. Production build and existing browser regression passed.
 - The pack has one reviewed lesson per chapter. A comprehensive question bank for every indexed grammar topic still requires additional editorial coverage.
+
+## Phase 3 — Private content engine
+
+- Added versioned study-pack validation and local answer checking. Existing v1/v2 vocabulary format and IndexedDB schema are untouched.
+- Study data uses a separate IndexedDB database. The browser test verified isolated writes, a failed transaction preserving its previous record, and five serialized concurrent writes.
+- Tests: 57 passed with the real files, 10 baseline-only fixture tests skipped. Production build and browser regression passed.
