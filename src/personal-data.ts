@@ -1,8 +1,9 @@
 import { articles, automaticExampleApproval, isLevel, levels,
   type ExampleSentence, type Level, type PilotEntry } from './pilot.ts'
-import { readSourceRows, type SourceRow } from './source-data.ts'
+import { readSourceRows, bookFilenames, type SourceRow } from './source-data.ts'
 import { readExampleMetadata } from './example-data.ts'
 import { ImportProblem, requireImportFields } from './import-problem.ts'
+import { grammarTypes } from './question-types.ts'
 
 export const datasetFormat = 'german-quiz-personal'
 export const datasetVersion = 1
@@ -18,6 +19,7 @@ interface SourceReference {
   verificationStatus: 'manually_verified' | 'automated_pass'
   approvalStatus?: 'approved' | 'pending_review'
   reviewMethod?: 'ai_pdf_visual' | 'user_approval_after_pdf_match' | null
+  document?: 'a1-book' | 'a2-book'
 }
 
 export interface PersonalEntry extends PilotEntry {
@@ -31,6 +33,7 @@ export interface PersonalDataset {
   entries: PersonalEntry[]
   distractorGroups: string[][]
   sourceRows?: SourceRow[]
+  questionExclusions?: { sourceRowId: string; mode: string; reason: string; method: 'ai_source_review' }[]
 }
 
 type RecordValue = Record<string, unknown>
@@ -58,7 +61,9 @@ function readSource(value: unknown): SourceReference {
   const source = object(value)
   requireImportFields(source, ['id', 'level', 'sourcePdf', 'chapter', 'page', 'verificationStatus'])
   const { id, level, sourcePdf, chapter, page, chapterTitle, verificationStatus, approvalStatus, reviewMethod } = source
-  if (!isLevel(level) || sourcePdf !== level + '.pdf' ||
+  const book = source.document === String(level).toLowerCase() + '-book'
+  if (!isLevel(level) || sourcePdf !== (book ? bookFilenames[level] : level + '.pdf') ||
+      (source.document !== undefined && !book) ||
       !positive(chapter, 999) || !positive(page, 10_000) ||
       typeof id !== 'string' || !/^[a-z0-9-]{1,90}$/u.test(id) ||
       !id.startsWith(level.toLowerCase() + '-' + String(chapter).padStart(2, '0') + '-') ||
@@ -91,12 +96,16 @@ function readExample(value: unknown, id: string, sources: SourceReference[]): Ex
     ...example, entryId: id, level, german: german as string, arabic: arabic as string | null,
     ...(approval ? { localApproval: automaticExampleApproval } : {}) }
   if (origin === 'source_pdf') {
+    const proof=metadata?.textbook_source
+    const textbook=Boolean(proof && proof.document===level.toLowerCase()+'-book' && sourcePdf===bookFilenames[level] &&
+      sources.some(source=>source.id===metadata?.source_row_id&&source.document===proof.document) && chapter===proof.chapter)
     if ((verificationStatus !== 'manually_verified' && verificationStatus !== 'automated_checked') ||
-        sourcePdf !== level + '.pdf' || !positive(chapter, 999) || !positive(page, 10_000) ||
+        (!textbook && (proof || sourcePdf !== level + '.pdf' || !positive(chapter, 999))) || !positive(page, 10_000) ||
+        (textbook && verificationStatus!=='automated_checked') ||
         !localApproval(arabicLocalApproval) || (arabicOrigin !== undefined && (arabicOrigin !== 'authored' || !arabic)) ||
         (arabicLocalApproval && arabicOrigin !== 'authored') ||
         (approval && verificationStatus !== 'automated_checked')) throw new Error('Invalid PDF example provenance')
-    return { ...common, ...metadata, origin, verificationStatus, sourcePdf: sourcePdf as string, chapter: chapter as number,
+    return { ...common, ...metadata, origin, verificationStatus, sourcePdf: sourcePdf as string, chapter: chapter as number|null,
       page: page as number, ...(arabicOrigin ? { arabicOrigin } : {}),
       ...(arabicLocalApproval ? { arabicLocalApproval: automaticExampleApproval } : {}) }
   }
@@ -176,6 +185,7 @@ export function validatePersonalDataset(input: unknown): PersonalDataset {
           if (!source || source.combined_id !== entry.id || source.verification_status === 'needs_manual_review' ||
               source.verification_status !== ref.verificationStatus || source.level !== ref.level ||
               source.source_pdf !== ref.sourcePdf || source.chapter_number !== ref.chapter || source.source_page !== ref.page ||
+              source.source_document !== ref.document ||
               source.german !== entry.german || source.part_of_speech !== entry.part_of_speech || source.article !== entry.article ||
               [...(source.arabic_translations ?? [])].sort().join('\n') !== [...entry.arabic_translations].sort().join('\n') ||
               [...(source.synonyms ?? [])].sort().join('\n') !== [...entry.synonyms].sort().join('\n')) {
@@ -187,7 +197,7 @@ export function validatePersonalDataset(input: unknown): PersonalDataset {
           const signature = (example: typeof archived[number] | ExampleSentence) =>
             JSON.stringify([example.german, example.arabic, example.level, example.source_type, example.grammar_focus,
               example.verification_status, example.source_page, example.source_row_id, example.example_review?.evidence,
-              example.example_review?.method])
+              example.example_review?.method,example.textbook_source])
           if (JSON.stringify(archived.map(signature).sort()) !== JSON.stringify(entry.examples.map(signature).sort()) ||
               entry.examples.some(example => example.origin === 'source_pdf' && example.verificationStatus !==
                 (bySource.get(example.source_row_id ?? '')?.verification_status === 'manually_verified'
@@ -218,6 +228,20 @@ export function validatePersonalDataset(input: unknown): PersonalDataset {
     })
   } catch (error) {
     throw new ImportProblem('record', 'Invalid distractor groups', undefined, undefined, { cause: error })
+  }
+  if (record.questionExclusions !== undefined) {
+    const exclusions = list(record.questionExclusions, 4000).map(object)
+    const keys = new Set<string>()
+    for (const exclusion of exclusions) {
+      const source = bySource?.get(String(exclusion.sourceRowId))
+      const identity = String(exclusion.sourceRowId) + ':' + String(exclusion.mode)
+      const scopedMode = typeof exclusion.mode==='string' && ((exclusion.mode.startsWith(source?.part_of_speech+'-') && Object.hasOwn(grammarTypes,exclusion.mode)) || exclusion.mode==='article'&&source?.part_of_speech==='noun')
+      if (!source || !scopedMode ||
+          !safeText(exclusion.reason, 500) || exclusion.method !== 'ai_source_review' || keys.has(identity)) {
+        throw new ImportProblem('source', 'Invalid field-level question exclusion')
+      }
+      keys.add(identity)
+    }
   }
   return { ...record, format, version, entries, distractorGroups, ...(sourceRows ? { sourceRows } : {}) }
 }

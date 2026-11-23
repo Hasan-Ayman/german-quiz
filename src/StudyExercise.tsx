@@ -6,6 +6,7 @@ import type { StudyQuestion } from './study-content'
 import { StudySpeech } from './StudySpeech'
 import { MatchingBoard, OrderBoard } from './ExerciseTools'
 import { presentPronouns } from './question-types'
+import { feedbackExamples } from './pilot'
 
 import type { StudyResult } from './study-progress'
 import { initialPosition, type PracticePosition } from './practice-session'
@@ -36,6 +37,7 @@ function Question({ item, next, onResult, onRule, savedResult, savedResponse }: 
   })
   const answerLanguage = item.answerLanguage ?? (item.type === 'reading' || item.type === 'flashcard' ? 'ar' : 'de')
   const incorrect = marked === 'incorrect' || marked === 'missed'
+  const examples=feedbackExamples(item.examples??[],item.chapter.startsWith('A1:')?'A1':'A2')
   const exercise = item.activity ?? item.type
   const locked = useRef(Boolean(savedResult))
 
@@ -56,6 +58,7 @@ function Question({ item, next, onResult, onRule, savedResult, savedResponse }: 
 
   return <section className={'panel study-flow learning-exercise exercise-' + exercise} aria-label="نشاط الدراسة">
     <h1 tabIndex={-1}>{item.instruction}</h1>
+    {item.contentBasis==='transcript_based_reading'&&<p className="study-source">قراءة مبنية على نص الاستماع المكتوب؛ هذا النشاط لا يشغّل تسجيلًا صوتيًا.</p>}
     <div className={item.type === 'reading' ? 'reading-spread' : 'study-flow'}>
       {item.type === 'reading' && <article className="reading-paper" aria-label="نص القراءة">
         <p lang="de" dir="ltr" className="study-prompt">{item.prompt}</p>
@@ -108,22 +111,22 @@ function Question({ item, next, onResult, onRule, savedResult, savedResponse }: 
             <p className="arabic-explanation" lang="ar" dir="rtl">{item.explanation || 'لا يتوفر شرح موثّق لهذا السؤال. قارن إجابتك بالإجابة المعتمدة.'}</p>
             {item.german && <p lang="de" dir="ltr">{item.german}</p>}
             {item.arabic && <p lang="ar" dir="rtl">{item.arabic}</p>}
-            {Boolean(item.examples?.length) && <div className="session-examples">
-              <strong>مثال في السياق</strong>
-              {item.examples!.slice(0, 1).map(example => <div key={example.german}>
-                <p lang="de" dir="ltr">{example.german}</p>
-                {example.arabic && <p lang="ar" dir="rtl">{example.arabic}</p>}
-                {example.origin === 'source_pdf' && <small className="study-source"><bdi dir="ltr">{example.sourcePdf}</bdi> · صفحة {number.format(example.page)}</small>}
-              </div>)}
-            </div>}
-            {item.type === 'reading' && item.passageArabic && <details><summary>ترجمة النص</summary>
-              <p lang="ar" dir="rtl">{item.passageArabic}</p></details>}
             <p className="study-source">المصدر <bdi dir="ltr">{item.source.document}</bdi> · صفحة PDF {number.format(item.source.page)}</p>
             <div className="study-actions">
               {item.topic && onRule && <button type="button" className="button secondary" onClick={onRule}>تدرّب على هذه القاعدة</button>}
               <a className="text-button" href={'#/mistakes?item=' + encodeURIComponent(item.id)}>افتح دفتر الأخطاء</a>
             </div>
           </>}
+          {Boolean(examples.length) && <div className="session-examples">
+            <strong>مثال في السياق</strong>
+            {examples.slice(0,1).map(example=><div key={example.german}>
+              <p lang="de" dir="ltr">{example.german}</p>
+              {example.arabic&&<p lang="ar" dir="rtl">{example.arabic}</p>}
+              {example.origin==='source_pdf'&&<small className="study-source"><bdi dir="ltr">{example.sourcePdf}</bdi> · صفحة {number.format(example.page)}</small>}
+            </div>)}
+          </div>}
+          {item.type === 'reading' && item.passageArabic && <details><summary>ترجمة النص</summary>
+            <p lang="ar" dir="rtl" className="passage-translation">{item.passageArabic}</p></details>}
           <button type="button" className="button primary" onClick={next}>النشاط التالي</button>
         </div>}
       </div>

@@ -15,6 +15,7 @@ export interface ExampleMetadata {
   source_page: number | null
   source_row_id: string
   example_review?: { method: string; evidence: string }
+  textbook_source?: { document:'a1-book'|'a2-book'; sha256:string; section:'chapter'|'grammar_reference'; chapter:number|null; bbox:number[]; method:'ai_pdf_visual_review'; humanVerified:false }
 }
 
 interface ExampleText extends Partial<ExampleMetadata> {
@@ -30,7 +31,7 @@ export const automaticExampleApproval = 'automated_approved_for_local_use'
 interface PdfExample extends ExampleText {
   origin: 'source_pdf'
   sourcePdf: string
-  chapter: number
+  chapter: number | null
   page: number
   verificationStatus: 'manually_verified' | 'automated_checked'
   arabicOrigin?: 'authored'
@@ -96,7 +97,7 @@ function verifiedExample(source: Record<string, unknown>, entryId: string, local
 
 export function feedbackExamples(examples: readonly ExampleSentence[], level: Level): ExampleSentence[] {
   const fits = (example: ExampleSentence) => level === 'A2' || example.level === 'A1'
-  const eligible = examples.filter(example => fits(example) &&
+  const eligible = examples.filter(example => fits(example) && example.verification_status !== 'needs_review' &&
     (example.origin === 'source_pdf' ||
       example.verificationStatus === 'reviewed' || example.verificationStatus === automaticExampleApproval))
   const ordered = eligible.some(example => example.source_type)

@@ -1,6 +1,6 @@
 import { grammarTypes, presentPronouns, type GrammarMode } from './question-types.ts'
 import { arabicKey, germanKey, type Catalog, type Fact, type Text } from './quiz.ts'
-import type { PersonalEntry } from './personal-data.ts'
+import type { PersonalDataset, PersonalEntry } from './personal-data.ts'
 import type { ChapterKey, SourceRow } from './source-data.ts'
 import type { Level } from './pilot.ts'
 
@@ -92,13 +92,13 @@ function sourceCandidates(entry: PersonalEntry, row: SourceRow): Candidate[] {
 }
 
 export function extendWithGrammar(
-  catalog: Catalog, entries: PersonalEntry[], allEntries: PersonalEntry[], rows: SourceRow[], level: Level,
+  catalog: Catalog, entries: PersonalEntry[], allEntries: PersonalEntry[], rows: SourceRow[], level: Level, exclusions: PersonalDataset['questionExclusions'] = [],
 ): Catalog {
   const bySource = new Map(rows.map(row => [row.id, row]))
   const allowed = new Set(entries.map(entry => entry.id))
   const candidates = allEntries.flatMap(entry => entry.sources.flatMap(ref => {
     const row = bySource.get(ref.id)
-    return row ? sourceCandidates(entry, row) : []
+    return row ? sourceCandidates(entry, row).filter(item => !exclusions.some(exclusion => exclusion.sourceRowId === row.id && exclusion.mode === item.mode)) : []
   }))
   const byPrompt = new Map<string, Set<string>>()
   const byGroup = new Map<string, Candidate[]>()

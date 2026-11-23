@@ -55,7 +55,7 @@ export async function updateStudyRecords(keys: readonly string[], modify: (previ
       transaction.onabort = () => reject(failure ?? transaction.error)
       keys.forEach((key, index) => {
         const read = store.get(key)
-        read.onerror = () => { failure = read.error }
+        read.onerror = () => { failure ??= read.error }
         read.onsuccess = () => {
           records[index] = read.result ?? null
           if (--remaining !== 0) return
@@ -64,11 +64,13 @@ export async function updateStudyRecords(keys: readonly string[], modify: (previ
             for (const [i, value] of updated.entries()) {
               if (value === records[i]) continue
               const write = store.put(value, keys[i])
-              write.onerror = () => { failure = write.error }
+              write.onerror = () => { failure ??= write.error }
             }
           } catch (error) {
             failure = error
-            transaction.abort()
+            // A failed write or an interrupted import may already have aborted
+            // the transaction. Keep the original failure, not InvalidStateError.
+            try { transaction.abort() } catch { reject(error) }
           }
         }
       })
@@ -89,7 +91,7 @@ export async function writeStudyRecords(entries: readonly (readonly [string, unk
       try {
         for (const [key, value] of entries) store.put(value, key)
       } catch (error) {
-        transaction.abort()
+        try { transaction.abort() } catch { /* Already aborted; preserve the original error. */ }
         reject(error)
       }
     })
@@ -100,3 +102,17 @@ export async function writeStudyRecords(entries: readonly (readonly [string, unk
 
 export const loadStudyPack = () => readStudyRecord('pack')
 export const saveStudyPack = (pack: StudyPack) => updateStudyRecord('pack', () => pack)
+
+export async function readStudyHistory(prefix: string) {
+  const database = await openStudyDatabase(indexedDB)
+  try {
+    return await new Promise<unknown[]>((resolve, reject) => {
+      const transaction = database.transaction(storeName, 'readonly')
+      const store = transaction.objectStore(storeName)
+      const prior = store.get('progress')
+      const log = store.getAll(IDBKeyRange.bound(prefix, prefix + '\uffff'))
+      transaction.oncomplete = () => resolve([prior.result ?? [], log.result])
+      transaction.onabort = () => reject(transaction.error)
+    })
+  } finally { database.close() }
+}

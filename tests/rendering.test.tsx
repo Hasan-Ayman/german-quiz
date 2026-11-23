@@ -31,11 +31,11 @@ it('declares an Arabic RTL document and isolates Arabic and German with their la
     .toBe('<bdi lang="ar" dir="rtl">' + arabic + '</bdi>')
 })
 
-it('renders the level and round options with A2 and 10 selected by default', async () => {
+it('keeps the legacy level and count options without exposing verification categories', async () => {
   const home = renderToStaticMarkup(<QuizApp bank={await preparePersonalQuiz(fixtureDataset)} />)
   const options = [...home.matchAll(/<option value="([^"]+)"( selected="")?>/g)]
-  expect(options.map(option => option[1])).toEqual(['A1', 'A2', '10', '20', '30', '50', 'reviewed', 'with-automatic'])
-  expect(options.filter(option => option[2]).map(option => option[1])).toEqual(['A2', '10', 'reviewed'])
+  expect(options.map(option => option[1])).toEqual(['A1', 'A2', '10', '20', '30', '50'])
+  expect(options.filter(option => option[2]).map(option => option[1])).toEqual(['A2', '10'])
 })
 
 it('offers a local file picker before a personal dataset is available', () => {
@@ -60,7 +60,7 @@ it('shows a verified German example after answering and hides it beforehand', ()
   expect(after).not.toContain('<p lang="ar" dir="rtl">')
 })
 
-it('shows the local automatic approval and both sentence directions only after answering', () => {
+it('shows approved examples in both sentence directions without approval labels', () => {
   const [question] = makeQuiz(catalog, () => .5)
   const german = 'Das ist ein Beispielsatz.'
   const arabic = 'هذه جملة توضيحية.'
@@ -72,7 +72,7 @@ it('shows the local automatic approval and both sentence directions only after a
   expect(before).not.toContain(german)
   expect(before).not.toContain(arabic)
   const after = renderPanel(answer(attempt, question.correctId))
-  expect(after).toContain('معتمد آليًا للاستخدام المحلي')
+  expect(after).not.toContain('معتمد آليًا للاستخدام المحلي')
   expect(after).toContain('<p lang="de" dir="ltr">' + german + '</p>')
   expect(after).toContain('<p lang="ar" dir="rtl">' + arabic + '</p>')
 })

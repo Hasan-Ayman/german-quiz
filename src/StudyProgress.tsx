@@ -3,7 +3,8 @@ import { downloadStudyJson, encodeProgress, readProgressFile, reviewSchedule, sa
   studyStats, type StudyEvent } from './study-progress'
 import type { StudyPack, StudyQuestion } from './study-content'
 import { serializePersonalDataset, type PersonalDataset } from './personal-data'
-import { createEducationPackage, educationFilename, serializeEducationPackage } from './education-package'
+import { educationForExport } from './education-storage'
+import { educationFilename, serializeEducationPackage } from './education-package'
 import { studyTypeLabels } from './study-labels'
 
 const number = new Intl.NumberFormat('ar-u-nu-arab')
@@ -46,6 +47,16 @@ export function StudyBackup({ vocabulary, pack, events, update }: {
 }) {
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
+  async function exportContent() {
+    if (!vocabulary || !pack) return
+    setError('')
+    try {
+      const content = await educationForExport(vocabulary, pack)
+      downloadStudyJson(educationFilename, serializeEducationPackage(content))
+    } catch {
+      setError('تعذّر قراءة نسخة المحتوى الكاملة. أعد فتح التطبيق وحاول مجددًا؛ ظلَّ المحتوى محفوظًا.')
+    }
+  }
   async function restore(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0]
     event.currentTarget.value = ''
@@ -66,8 +77,7 @@ export function StudyBackup({ vocabulary, pack, events, update }: {
       <div className="study-flow">
         <button className="button secondary" type="button" onClick={() =>
           downloadStudyJson('german-quiz-study-progress-private.json', encodeProgress(events))}>تنزيل التقدم</button>
-        {vocabulary && pack ? <button className="button secondary" type="button" onClick={() =>
-          downloadStudyJson(educationFilename, serializeEducationPackage(createEducationPackage(vocabulary, pack)))}>
+        {vocabulary && pack ? <button className="button secondary" type="button" onClick={() => void exportContent()}>
           تنزيل ملف المحتوى</button> : <>
           {vocabulary && <button className="button secondary" type="button" onClick={() =>
             downloadStudyJson('german-quiz-personal-vocabulary-v' + vocabulary.version + '.json', serializePersonalDataset(vocabulary))}>

@@ -7,6 +7,7 @@ import { StudyBackup } from './StudyProgress'
 import { LearningAnalytics, LearningDashboard, type Suggestion } from './LearningAnalytics'
 import { MistakeNotebook } from './MistakeNotebook'
 import { adaptiveRound, buildEvidence, difficultyByActivity, reviewOrder } from './learning-model'
+import { availableStudyQuestions } from './source-questions'
 import { matchingCandidates } from './matching'
 import { activities, chapterLevel, eligiblePractice, fromStudyQuestion, levelMatches, loadPracticePreferences,
   practiceChapters, practiceRound, questionGroups, selectedChapters, setChapters, type Activity, type Candidate, type Preferences } from './practice'
@@ -15,9 +16,12 @@ import { flashcardModes, type FlashcardMode } from './study-flashcards'
 import type { StudyPack, StudyQuestion } from './study-content'
 import { studyAssessment } from './study-engine'
 import { loadStudyProgress, makeStudyEvent, type StudyEvent, type StudyResult } from './study-progress'
-import { loadAttempt, readLocal, writeLocal, type Theme } from './storage'
+import { readLocal, writeLocal, type Theme } from './storage'
+import { useLegacySession } from './useLegacySession'
+import { selectLegacySession } from './legacy-session'
+import { incorrectAnswers } from './quiz'
 import type { PersonalQuiz } from './personal-quiz'
-import { initialPosition, loadPracticeSession, savePracticeResponse, storePracticePlan, storePracticePosition,
+import { finishPracticeAssessment, initialPosition, loadPracticeSession, savePracticeResponse, storePracticePlan, storePracticePosition,
   type PracticePlan, type PracticePosition } from './practice-session'
 
 export type PracticeScreen = 'home' | 'setup' | 'settings' | 'chapters' | 'progress' | 'practice' | 'mistakes'
@@ -41,7 +45,7 @@ export function UnifiedPractice({ screen, navigate, bank, pack, contentLoading, 
   const [sessionLoading, setSessionLoading] = useState(true)
   const [sessionFinished, setSessionFinished] = useState(false)
   const [openChapter, setOpenChapter] = useState('')
-  const expanded = prefs.reliability === 'with-automatic'
+  const expanded = true
   const setup = screen === 'setup' || (screen === 'practice' && !session && !sessionLoading)
 
   useEffect(() => writeLocal(preferenceKey, JSON.stringify(prefs)), [prefs])
@@ -80,7 +84,8 @@ export function UnifiedPractice({ screen, navigate, bank, pack, contentLoading, 
     const id = session.plan.id
     try {
       const event = makeStudyEvent(item, result, id + ':' + position.index, answer)
-      setEvents(await savePracticeResponse(id, position, event))
+      const saved=await savePracticeResponse(id, position, event)
+      if(saved)setEvents(current=>current.some(item=>item.id===saved.id)?current:[...current,saved])
       setNow(Date.now())
       setProgressError('')
       return true
@@ -92,7 +97,9 @@ export function UnifiedPractice({ screen, navigate, bank, pack, contentLoading, 
 
   const chapters = useMemo(() => practiceChapters(bank, pack), [bank, pack])
   const selected = useMemo(() => selectedChapters(chapters, prefs), [chapters, prefs])
-  const study = useMemo(() => (pack?.questions ?? []).filter(item => item.type !== 'writing').map(fromStudyQuestion), [pack])
+  const study = useMemo(() => {
+    return availableStudyQuestions(pack?.questions ?? [], bank?.dataset.entries ?? [], expanded, bank?.dataset.questionExclusions).map(fromStudyQuestion)
+  }, [pack, bank, expanded])
   const vocabularyLevel = prefs.scope === 'A1' ? 'A1' : 'all'
   const vocabulary = useMemo(() => bank ? vocabularyCandidates(bank, vocabularyLevel, expanded) : [], [bank, vocabularyLevel, expanded])
   const cards = useMemo(() => bank ? flashcardCandidates(bank, chapters, prefs.cards, expanded) : [], [bank, chapters, prefs.cards, expanded])
@@ -120,8 +127,7 @@ export function UnifiedPractice({ screen, navigate, bank, pack, contentLoading, 
     study.some(item => item.chapter === chapter.id) &&
     study.every(item => item.chapter !== chapter.id || practiced.has(item.id)))
 
-  const legacyAttempt = useMemo(() => (screen === 'progress' || screen === 'home') && bank ? loadAttempt(readLocal('attempt'), bank.catalogs, bank.revision,
-    bank.automaticAvailable ? { getCatalog: bank.getExpandedCatalog, revision: bank.revision } : undefined) : null, [bank, screen])
+  const {attempt:legacyAttempt,sessions:legacySessions,issue:legacyIssue} = useLegacySession(bank,true)
   const reviewCandidates = useMemo(() => {
     const allVocabulary = bank && vocabularyLevel !== 'all' ? vocabularyCandidates(bank, 'all', expanded) : vocabulary
     const trackedModes = new Set([...evidence.keys()].filter(id => id.startsWith('card:')).map(id => id.split(':')[1]))
@@ -162,11 +168,11 @@ export function UnifiedPractice({ screen, navigate, bank, pack, contentLoading, 
     launch(materialize(groups.slice(0, limit).map(items => items[0])))
   }
 
-  function launch(items: StudyQuestion[], coverage?: PracticePlan['coverage']) {
+  function launch(items: StudyQuestion[], coverage?: PracticePlan['coverage'], assessment=false) {
     if (!items.length) return
     if (session && !sessionFinished && screen !== 'practice' &&
         !window.confirm('هل تريد بدء تدريب جديد؟ تقدّمك المسجّل محفوظ، وستنتهي الجلسة الحالية.')) return
-    const plan = { id: crypto.randomUUID(), items, coverage }
+    const plan = { id: crypto.randomUUID(), items, coverage, assessment }
     setSession({ plan, position: initialPosition })
     setSessionFinished(false)
     void storePracticePlan(plan).catch(() => setProgressError('تعذّر حفظ هذه الجلسة لاستئنافها لاحقًا.'))
@@ -187,7 +193,7 @@ export function UnifiedPractice({ screen, navigate, bank, pack, contentLoading, 
     const pool = [...study, ...vocabulary].filter(item => item.chapter === chapter &&
       item.activity !== 'flashcard' && item.activity !== 'writing' && (!testStyle || assessmentTypes.has(item.activity)))
     const candidates = practiceRound(questionGroups(pool), 'all').map(item => item.make())
-    launch(studyAssessment(candidates, prefs.count === 'all' ? candidates.length : prefs.count))
+    launch(studyAssessment(candidates, prefs.count === 'all' ? candidates.length : prefs.count),undefined,true)
   }
 
   function chooseChapter(id: string) {
@@ -238,11 +244,7 @@ export function UnifiedPractice({ screen, navigate, bank, pack, contentLoading, 
         </section>
         {bank?.automaticAvailable && <section className="settings-section">
           <h2>مصادر المفردات في التدريب</h2>
-          <label className="settings-option"><input type="radio" name="reliability" checked={!expanded}
-            onChange={() => setPrefs(before => ({ ...before, reliability: 'reviewed' }))} /> المفردات المراجَعة فقط</label>
-          <label className="settings-option"><input type="radio" name="reliability" checked={expanded}
-            onChange={() => setPrefs(before => ({ ...before, reliability: 'with-automatic' }))} /> المراجَعة والمتحقّق منها آليًا</label>
-          <p className="setup-helper">المفردات المتحقّق منها آليًا قد لا تكون راجعتْها يدويًا جهة مختصّة.</p>
+
         </section>}
         <section className="settings-section">
           <h2>الهدف اليومي <small>اختياري</small></h2>
@@ -287,6 +289,15 @@ export function UnifiedPractice({ screen, navigate, bank, pack, contentLoading, 
     </>}
     {screen === 'progress' && <LearningAnalytics events={events} chapters={chapters} topics={topics} now={now} configure={configure}
       legacyLink={legacyAttempt ? legacyAttempt.finished ? '#/results' : '#/quiz' : undefined} />}
+    {screen === 'progress' && <section className="panel study-flow" aria-label="جلسات المفردات المحفوظة">
+      <h2>جلسات المفردات المحفوظة</h2>
+      {legacyIssue && <p role="status">{legacyIssue}</p>}
+      {legacySessions.length ? <ul>{legacySessions.map(session=><li key={session.id}>
+        {session.attempt.finished ? 'مكتمل' : 'قيد التدريب'} · {arabicNumber(session.attempt.questions.length)} أسئلة
+        {session.attempt.finished && ' · '+arabicNumber(session.attempt.questions.length-incorrectAnswers(session.attempt).length)+' صحيحة'}
+        <button className="text-button" onClick={()=>{void selectLegacySession(session.id).then(()=>{window.dispatchEvent(new Event('german-quiz:legacy-session'));window.location.hash=session.attempt.finished?'/results':'/quiz'}).catch(()=>setProgressError('تعذّر فتح الجلسة. بقي سجلها محفوظًا.'))}}>افتح الجلسة المحفوظة</button>
+      </li>)}</ul> : <p>ستظهر هنا جلسات المفردات ذات النسخ الأصلية المحفوظة.</p>}
+    </section>}
     {screen === 'mistakes' && <MistakeNotebook evidence={evidence} candidates={reviewCandidates} chapters={chapters}
       topics={topics} now={now} onReview={launchReview} />}
     {screen === 'practice' && sessionLoading && <p className="panel metric-empty" role="status">جارٍ استعادة الجلسة…</p>}
@@ -300,7 +311,9 @@ export function UnifiedPractice({ screen, navigate, bank, pack, contentLoading, 
         close={() => navigate('setup')} onResult={record} onRule={openRule} onRetry={launch}
         onPosition={position => {
           if (position.index === session.plan.items.length) setSessionFinished(true)
-          void storePracticePosition(session.plan.id, position).catch(() => setProgressError('تعذّر حفظ موضع الجلسة.'))
+          const saved=session.plan.assessment&&position.index===session.plan.items.length
+            ? finishPracticeAssessment(session.plan,position) : storePracticePosition(session.plan.id, position)
+          void saved.catch(() => setProgressError('تعذّر حفظ موضع الجلسة.'))
         }} />
     </div>}
   </main>

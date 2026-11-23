@@ -11,6 +11,16 @@ it('merges matching events idempotently and rejects conflicts and malformed hist
   expect(() => mergeStudyProgress([base], [{ ...base, time: Number.POSITIVE_INFINITY }])).toThrow(/Invalid/)
 })
 
+it('preserves exact grouped-pronoun question IDs without admitting arbitrary slash paths', () => {
+  for (const pronoun of ['er/sie/es', 'sie/Sie']) {
+    const event = { ...base, questionId: 'study:test-entry:verb-present:' + pronoun + ':A1:1' }
+    expect(mergeStudyProgress([event])).toEqual([event])
+  }
+  for (const questionId of ['../file', 'study:test:verb-present:du/ihr:A1:1', 'study:test:verb-present:er/sie/es:A1:99']) {
+    expect(() => mergeStudyProgress([{ ...base, questionId }])).toThrow(/Invalid/)
+  }
+})
+
 it('schedules reviews and resets the interval after a miss', () => {
   expect(reviewSchedule([base]).get('q1')).toEqual({ streak: 1, needsReview: false, due: time + day })
   const second = { ...base, id: 'r2', time: time + day }

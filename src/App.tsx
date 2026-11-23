@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
+import {analyticsQuestionIndex,legacyQuestionInfo} from './answer-analytics'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
 import { Icon } from './icons'
 import { educationImportMessage, readEducationFile, validateEducationPackage } from './education-package'
 import { factType, preparePersonalQuiz, selectedPersonalCatalog, type PersonalQuiz } from './personal-quiz'
 import { loadEducationLibrary, saveEducationPackage } from './education-storage'
-import type { StudyPack } from './study-content'
+import type { StudyPack, StudyQuestion } from './study-content'
 import { useAppUpdate } from './pwa'
+import {ImportProblem} from './import-problem'
 import { EducationImport, type ImportStatus } from './EducationImport'
 import { QuizFilters } from './QuizFilters'
 import { UnifiedPractice, type PracticeScreen } from './UnifiedPractice'
@@ -15,7 +17,10 @@ import {
   answer, incorrectAnswers, isCorrect, isQuestionCount, makeQuiz, modes, newAttempt,
   nextQuestion, questionCounts, retryQuiz, type Attempt, type Mode, type Text,
 } from './quiz'
-import { loadAttempt, loadQuizSettings, loadTheme, readLocal, saveAttempt, writeLocal, type QuizSettings } from './storage'
+import { loadQuizSettings, loadTheme, readLocal, writeLocal, type QuizSettings } from './storage'
+import { useLegacySession } from './useLegacySession'
+import {SimpleLearning,LearningDataTools,ChapterLabel,ArabicExplanation,type SimpleScreen} from './SimpleLearning'
+import {buildLearningLibrary,validateQuestionFeedback,type ExplanationSupplement,type QuestionFeedback} from './learning-library'
 
 const numbers = new Intl.NumberFormat('ar-u-nu-arab')
 const percentages = new Intl.NumberFormat('ar-u-nu-arab', { style: 'percent', maximumFractionDigits: 0 })
@@ -36,14 +41,14 @@ function modeDetails(mode: Mode) {
   return { ...style, name, instruction }
 }
 
-type Screen = PracticeScreen | 'quiz' | 'results' | 'review' | 'vocabulary'
+type Screen = PracticeScreen | SimpleScreen | 'quiz' | 'results' | 'review' | 'vocabulary' | 'legacy-setup'
 
 function readScreen(): Screen {
   const name = window.location.hash.slice(2).split('?')[0]
   if (name === 'study') return 'home'
   return name === 'quiz' || name === 'results' || name === 'review' || name === 'vocabulary' ||
     name === 'settings' || name === 'chapters' || name === 'progress' || name === 'practice' ||
-    name === 'setup' || name === 'mistakes' ? name : 'home'
+    name === 'analytics' || name === 'setup' || name === 'mistakes' || name === 'questions' || name === 'test' || name === 'test-results' || name === 'test-review' || name === 'legacy-setup' ? name : 'home'
 }
 
 function subscribeScreen(callback: () => void) {
@@ -80,11 +85,11 @@ function ExampleFeedback({ example }: { example: ExampleSentence }) {
       <div className="example-heading">
         <h2>جملة مثال</h2>
         <span>{example.origin === 'source_pdf' ? 'من المصدر' : 'مثال مؤلَّف'}
-          {example.localApproval && ' · معتمد آليًا للاستخدام المحلي'}</span>
+          </span>
       </div>
       <p lang="de" dir="ltr">{example.german}</p>
       {example.origin === 'source_pdf' && example.arabicOrigin === 'authored' &&
-        <small>ترجمة عربية مضافة{example.arabicLocalApproval && ' · معتمدة آليًا للاستخدام المحلي'}</small>}
+        <small>ترجمة عربية مضافة</small>}
       {example.arabic && <p lang="ar" dir="rtl">{example.arabic}</p>}
       {example.verification_status === 'needs_review' && <small>الترجمة قيد المراجعة</small>}
     </section>
@@ -155,21 +160,10 @@ function Home({ bank, attempt, settings, updateSettings, start }: {
                 {questionCounts.map(count => <option key={count} value={count}>{number(count)}</option>)}
               </select>
             </label>
-            {expanded && <label className="reliability-setting">
-              موثوقية المفردات
-              <select value={settings.reliability} aria-describedby="reliability-description" onChange={event => {
-                const reliability = event.target.value
-                if (isReliability(reliability)) updateSettings({ ...settings, reliability })
-              }}>
-                <option value="reviewed">المفردات المراجَعة فقط</option>
-                <option value="with-automatic">المراجَعة والمفردات التي اجتازت الفحص الآلي</option>
-              </select>
-            </label>}
+
           </div>
           {availableTypes && <QuizFilters bank={bank} settings={settings} update={updateSettings} available={availableTypes} />}
-          {expanded && <p className="notice" id="reliability-description">
-            مجموعة الفحص الآلي مخصّصة للاختبار المحلي. لم يراجع شخصٌ جميع مفرداتها واحدةً تلو الأخرى.
-          </p>}
+
           <p className="notice" id="pilot-availability" aria-live="polite">
             تضمّ المجموعة المختارة {number(eligibleCount)} مفردة مؤهّلة لهذا المستوى.
             {' '}يشمل <bdi dir="ltr">A2</bdi> مفردات <bdi dir="ltr">A1</bdi> و<bdi dir="ltr">A2</bdi>.
@@ -230,11 +224,12 @@ function Home({ bank, attempt, settings, updateSettings, start }: {
   )
 }
 
-export function QuizPanel({ attempt, select, advance, concise = false }: {
+export function QuizPanel({ attempt, select, advance, concise = false, detail }: {
   attempt: Attempt
   select: (id: string) => void
   advance: () => void
   concise?: boolean
+  detail?: StudyQuestion
 }) {
   const current = attempt.questions[attempt.index]
   const total = attempt.questions.length
@@ -258,6 +253,7 @@ export function QuizPanel({ attempt, select, advance, concise = false }: {
       </div>
       <article className="panel question-panel">
         <div className="question-header">
+          {detail&&<p><ChapterLabel chapter={detail.chapter}/></p>}
           <ModeLabel mode={current.mode} />
           <p className="question-instruction">{modeDetails(current.mode).instruction}</p>
           <h1 tabIndex={-1} ref={heading}><LanguageText {...current.prompt} /></h1>
@@ -286,6 +282,7 @@ export function QuizPanel({ attempt, select, advance, concise = false }: {
                 <Icon name={isCorrect(current, selected) ? 'check' : 'cross'} size={18} />
                 {isCorrect(current, selected) ? 'إجابة صحيحة!' : 'إجابة غير صحيحة'}
               </strong>
+              {detail?.explanation&&<ArabicExplanation text={detail.explanation}/>}
               {(!concise || !isCorrect(current, selected)) && <>
                 <VocabularyDetail entry={current.entry} />
                 <EntryExamples entry={current.entry} level={attempt.level} preferred={current.exampleGerman} compact />
@@ -431,10 +428,16 @@ function VocabularyReview({ bank, scope, reliability }: { bank: PersonalQuiz; sc
   </section>
 }
 
-export function QuizApp({ bank, fileControls, legacy = false }: { bank: PersonalQuiz; fileControls?: ReactNode; legacy?: boolean }) {
-  const [settings, setSettings] = useState(() => loadQuizSettings(readLocal('quiz-settings'), bank.automaticAvailable))
-  const [attempt, setAttempt] = useState(() => loadAttempt(readLocal('attempt'), bank.catalogs, bank.revision,
-    bank.automaticAvailable ? { getCatalog: bank.getExpandedCatalog, revision: bank.revision } : undefined))
+export function QuizApp({ bank, fileControls, legacy = false, pack, explanations, feedback }: { bank: PersonalQuiz; fileControls?: ReactNode; legacy?: boolean; pack?: StudyPack|null; explanations?: ExplanationSupplement; feedback?: QuestionFeedback[] }) {
+  const [settings, setSettings] = useState<QuizSettings>(() => ({...loadQuizSettings(readLocal('quiz-settings'), bank.automaticAvailable), reliability: 'with-automatic' as const}))
+  const {attempt,setAttempt,loading:sessionLoading,issue:sessionIssue,historical} = useLegacySession(bank)
+  const questionDetails = useMemo(()=>{
+    if(!legacy)return null
+    const content=buildLearningLibrary(bank,pack??null,true,explanations,feedback)
+    return {content,index:analyticsQuestionIndex(content)}
+  },[legacy,bank,pack,explanations,feedback])
+  const questionInfo = attempt&&questionDetails?legacyQuestionInfo(attempt.questions[attempt.index],questionDetails.index):null
+  const detail = questionInfo&&questionDetails?questionDetails.content.byId.get(questionInfo.id)?.view:undefined
   const route = useSyncExternalStore(subscribeScreen, readScreen, () => 'home' as const)
   let screen = route
   if (screen !== 'home' && screen !== 'vocabulary' && !attempt) screen = 'home'
@@ -442,10 +445,6 @@ export function QuizApp({ bank, fileControls, legacy = false }: { bank: Personal
     if (!attempt.finished) screen = 'quiz'
     else if (screen === 'quiz' || (screen === 'review' && !incorrectAnswers(attempt).length)) screen = 'results'
   }
-
-  useEffect(() => {
-    if (attempt) writeLocal('attempt', saveAttempt(attempt, bank.revision))
-  }, [attempt, bank.revision])
 
   useEffect(() => {
     writeLocal('quiz-settings', JSON.stringify(settings))
@@ -484,20 +483,23 @@ export function QuizApp({ bank, fileControls, legacy = false }: { bank: Personal
   }
 
   const preferences = screen === 'vocabulary' ? loadPracticePreferences(readLocal('practice-preferences'), readLocal('quiz-settings')) : null
+  if (legacy && sessionLoading) return <main className="site-container main-content" id="legacy-main"><p role="status">جارٍ فتح جلسة الاختبار المحفوظة…</p></main>
   if (legacy && screen === 'home') return <main className="site-container main-content" id="legacy-main">
-    <section className="panel practice-empty"><h1>لا توجد جلسة مفردات محفوظة</h1><a className="button primary" href="#/">افتح التدريب</a></section>
+    <section className="panel practice-empty"><h1>جلسات المفردات المحفوظة</h1><p role="status">{sessionIssue || 'لا توجد جلسة مفردات قابلة للاستئناف.'}</p><a className="button primary" href="#/progress">عرض الجلسات والنتائج السابقة</a><a className="button secondary" href="#/">افتح التدريب</a></section>
   </main>
   return (
     <main className={'site-container main-content screen-' + screen} id={legacy ? 'legacy-main' : undefined}>
+      {sessionIssue && <p role="alert">{sessionIssue}</p>}
+      {historical && <p role="status">هذه جلسة محفوظة بمحتواها ومفتاح تصحيحها الأصليين، وقد يختلف محتواها عن الحزمة الحالية.</p>}
       {screen === 'home' && <>
         <Home bank={bank} attempt={attempt} settings={settings} updateSettings={setSettings} start={start} />
         {fileControls}
       </>}
       {screen === 'quiz' && attempt &&
-        <QuizPanel attempt={attempt} concise={legacy} select={id => setAttempt(current => current && answer(current, id))} advance={advance} />}
+        <QuizPanel attempt={attempt} concise={legacy} detail={detail} select={id => setAttempt(current => current && answer(current, id))} advance={advance} />}
       {screen === 'results' && attempt && <Results attempt={attempt} start={legacy ? () => navigate('setup') : start} retry={retry} />}
       {screen === 'review' && attempt && <Review attempt={attempt} retry={retry} />}
-      {preferences && <VocabularyReview bank={bank} scope={preferences.scope} reliability={preferences.reliability} />}
+      {preferences && <VocabularyReview bank={bank} scope={preferences.scope} reliability="with-automatic" />}
     </main>
   )
 }
@@ -505,13 +507,18 @@ export function QuizApp({ bank, fileControls, legacy = false }: { bank: Personal
 export default function App() {
   const screen = useSyncExternalStore(subscribeScreen, readScreen, () => 'home' as const)
   const [theme, setTheme] = useState(loadTheme)
-  const [library, setLibrary] = useState<{bank: PersonalQuiz | null; pack: StudyPack | null; storageIssue: boolean}>(() =>
+  const [library, setLibrary] = useState<{bank: PersonalQuiz | null; pack: StudyPack | null; storageIssue: boolean; explanations?:ExplanationSupplement; feedback?:QuestionFeedback[]}>(() =>
     ({ bank: null, pack: null, storageIssue: false }))
   const { bank, pack, storageIssue } = library
   const [loading, setLoading] = useState(true)
   const [importStatus, setImportStatus] = useState<ImportStatus>({ kind: 'idle' })
   const importInProgress = useRef(false)
   const applyUpdate = useAppUpdate()
+  const [importOpen,setImportOpen]=useState(false)
+  const importDialog=useRef<HTMLDialogElement>(null)
+  const lastScreen=useRef(screen)
+  useEffect(()=>{if(screen==='settings'){setImportOpen(true);navigate('home')}else if(lastScreen.current!==screen&&lastScreen.current!=='settings')setImportOpen(false);lastScreen.current=screen},[screen])
+  useEffect(()=>{const d=importDialog.current;if(importOpen&&!d?.open)d?.showModal();if(!importOpen&&d?.open)d.close()},[importOpen])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -525,7 +532,7 @@ export default function App() {
       if (!active) return
       const restored = saved.vocabulary ? await preparePersonalQuiz(saved.vocabulary).catch(() => null) : null
       if (active) {
-        setLibrary({ bank: restored, pack: saved.study, storageIssue: saved.storageIssue || Boolean(saved.vocabulary && !restored) })
+        setLibrary({ bank: restored, pack: saved.study, storageIssue: saved.storageIssue || Boolean(saved.vocabulary && !restored), explanations:'explanations'in saved?saved.explanations:undefined, feedback:'feedback'in saved?saved.feedback:undefined })
         setLoading(false)
       }
     }
@@ -548,9 +555,13 @@ export default function App() {
       const content = validateEducationPackage(value)
       await stage('preparing')
       const nextBank = await preparePersonalQuiz(content.vocabulary)
+      if(content.feedback) {
+        try { validateQuestionFeedback(content.feedback, nextBank, content.study) }
+        catch (cause) { throw new ImportProblem('study', 'Question feedback mismatch', undefined, undefined, {cause}) }
+      }
       await stage('saving')
       const changed = await saveEducationPackage(content)
-      setLibrary({ bank: nextBank, pack: content.study, storageIssue: false })
+      setLibrary({ bank: nextBank, pack: content.study, storageIssue: false,explanations:content.explanations,feedback:content.feedback })
       setImportStatus({ kind: 'success', duplicate: !changed })
     } catch (error) {
       setImportStatus({ kind: 'error', message: educationImportMessage(error) })
@@ -561,17 +572,10 @@ export default function App() {
   const importControls = <EducationImport entries={bank?.dataset.entries.length ?? null} chapters={pack?.chapters.length ?? null}
     activities={pack?.questions.length ?? null} loading={loading} storageIssue={storageIssue} status={importStatus} onImport={importFile} />
   const legacy = screen === 'quiz' || screen === 'results' || screen === 'review' || screen === 'vocabulary'
-  const tabs = [
-    { href: '#/', icon: 'grid', label: 'الرئيسية', active: screen === 'home' },
-    { href: '#/setup', icon: 'verb', label: 'التدريب', active: screen === 'setup' || screen === 'practice' || (legacy && screen !== 'vocabulary') },
-    { href: '#/mistakes', icon: 'retry', label: 'دفتر الأخطاء', active: screen === 'mistakes' },
-    { href: '#/chapters', icon: 'book', label: 'الدروس', active: screen === 'chapters' },
-    { href: '#/vocabulary', icon: 'list', label: 'القاموس', active: screen === 'vocabulary' },
-    { href: '#/progress', icon: 'progress', label: 'التحليلات', active: screen === 'progress' },
-  ] as const
+  const modern=['home','setup','mistakes','questions','test','test-results','test-review','settings','analytics'].includes(screen)
 
   return (
-    <div className="app-shell">
+    <div className="app-shell simple-shell">
       <button type="button" className="skip-link" onClick={() => {
         const main = document.querySelector<HTMLElement>('main:not([hidden]) h1, main:not([hidden]) h2')
         main?.setAttribute('tabindex', '-1')
@@ -583,20 +587,17 @@ export default function App() {
             <span className="brand-mark"><Icon name="book" size={22} /></span>
             <span><strong lang="en" dir="ltr">German Quiz</strong><small>تعلّم الألمانية</small></span>
           </a>
-          <nav className="unified-nav" aria-label="التنقل الرئيسي">
-            {tabs.map(tab => <a key={tab.href} href={tab.href} aria-current={tab.active ? 'page' : undefined}>
-              <Icon name={tab.icon} size={18} /><span>{tab.label}</span></a>)}
-          </nav>
-          <a href="#/settings" className="theme-button" aria-label="الإعدادات" title="الإعدادات"
-            aria-current={screen === 'settings' ? 'page' : undefined}><Icon name="sliders" size={20} /></a>
+          <div className="header-tools"><button className="import-shortcut" onClick={()=>setImportOpen(true)} aria-label="استيراد المحتوى التعليمي"><Icon name="layers" size={18}/><span>ملف المحتوى</span></button>
+          <button className="theme-button" aria-label={theme==='light'?'تفعيل الوضع الداكن':'تفعيل الوضع الفاتح'} onClick={()=>setTheme(theme==='light'?'dark':'light')}><Icon name={theme==='light'?'moon':'sun'}/></button></div>
         </div>
       </header>
       {applyUpdate && <aside className="site-container app-update" aria-label="تحديث التطبيق">
         <button type="button" className="button secondary" onClick={applyUpdate}>تثبيت تحديث التطبيق</button>
       </aside>}
-      <UnifiedPractice screen={legacy ? null : screen} navigate={navigate} bank={bank} pack={pack} contentLoading={loading}
-        importControls={importControls} theme={theme} changeTheme={setTheme} />
-      {legacy && (bank ? <QuizApp key={bank.revision} bank={bank} legacy /> :
+      {modern?<SimpleLearning screen={screen==='settings'?'home':screen as SimpleScreen} navigate={navigate} bank={bank} pack={pack} loading={loading} openImport={()=>setImportOpen(true)} supplement={library.explanations} feedback={library.feedback}/>:
+        !legacy&&<UnifiedPractice screen={screen==='legacy-setup'?'setup':screen as PracticeScreen} navigate={s=>navigate(s==='setup'?'legacy-setup':s)} bank={bank} pack={pack} contentLoading={loading} importControls={importControls} theme={theme} changeTheme={setTheme}/>}
+      <dialog ref={importDialog} className="content-dialog" aria-label="ملف المحتوى الخاص" onCancel={()=>setImportOpen(false)} onClose={()=>setImportOpen(false)}>{importOpen&&<><div className="dialog-heading"><h2>ملف المحتوى الخاص</h2><button className="theme-button" onClick={()=>setImportOpen(false)} aria-label="إغلاق"><Icon name="cross"/></button></div><LearningDataTools bank={bank} pack={pack} importControls={importControls}/></>}</dialog>
+      {legacy && (bank ? <QuizApp key={bank.revision} bank={bank} pack={pack} explanations={library.explanations} feedback={library.feedback} legacy /> :
         <main className="site-container main-content">
           {loading ? <p role="status">جارٍ فتح مكتبة المفردات…</p> : <section className="panel practice-empty">
             <h1>استورد ملف المحتوى لفتح القاموس والاختبارات المحفوظة</h1>

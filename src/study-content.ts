@@ -1,3 +1,4 @@
+import type { PrintedField } from './source-questions.ts'
 import type { Activity } from './practice.ts'
 import { isLevel, type ExampleSentence, type Level, type PartOfSpeech } from './pilot.ts'
 
@@ -8,6 +9,17 @@ export type StudyKind = 'a1-book' | 'a2-book' | 'a1-vocab' | 'a2-vocab'
 
 type Source = { id: StudyKind; pages: number; sha256: string }
 export type StudyReference = { document: StudyKind; page: number }
+export interface AnswerVerification {
+  status:'official_answer'|'ai_derived_verified'
+  method:'ai_source_question_answer_match'|'ai_grammar_context_review'
+  humanVerified:false
+  questionLocation:{document:StudyKind;page:number;section:'Hauptteil'|'Vertiefungsteil'|'Abschlusstest';exercise:string;item:string;rawQuestion:string;bbox:number[]}
+  official?:{sourceId:'a2-solutions';sha256:string;page:number;recordId:string;rawAnswer:string;acceptedAnswers:string[];exampleAnswer:boolean;wordJoins?:{original:string;joined:string;method:'ai_pdf_visual_word_join'}[]}
+  rationale:string
+}
+export interface TranscriptEvidence {
+  sourceId:'a2-solutions';sha256:string;page:number;recordId:string;rawTranscript:string;bbox:number[];humanVerified:false
+}
 export interface StudyChapter {
   id: string
   title: string
@@ -33,20 +45,27 @@ export interface StudyLesson {
   german: string
   arabic: string
   source: StudyReference
-  origin: 'authored'
-  verification: 'editorial_checked'
+  origin: 'authored' | 'source_derived'
+  verification: 'editorial_checked' | 'ai_pdf_visual_review'
 }
 
 export interface StudyQuestion extends Omit<StudyLesson, 'title' | 'origin' | 'verification'> {
-  origin: StudyLesson['origin'] | 'vocabulary'
+  origin: StudyLesson['origin'] | 'vocabulary' | 'source_derived'
   verification: StudyLesson['verification'] | 'reviewed' | 'automated_checked'
   promptLanguage?: 'de' | 'ar'
   answerLanguage?: 'de' | 'ar'
   id: string
   type: StudyType | 'matching'
   activity?: Activity
+  skill?: string
+  optionFeedback?: Record<string, string>
   support?: 'guided' | 'standard' | 'recall'
   pairs?: { german: string; arabic: string; source: StudyReference }[]
+  sourceEvidence?: { entryId: string; rowId: string; field: PrintedField }
+  sourceVocabularyReview?: 'automatically_validated' | 'reviewed'
+  sourceActivityRef?: string
+  passageRef?: string
+  readingEvidence?: string
   prompt: string
   instruction: string
   answers: string[]
@@ -59,6 +78,9 @@ export interface StudyQuestion extends Omit<StudyLesson, 'title' | 'origin' | 'v
   examples?: ExampleSentence[]
   practiceKey?: string
   part?: PartOfSpeech
+  answerVerification?:AnswerVerification
+  transcriptEvidence?:TranscriptEvidence
+  contentBasis?:'transcript_based_reading'
 }
 
 export interface StudyPack {
@@ -68,6 +90,31 @@ export interface StudyPack {
   chapters: StudyChapter[]
   lessons: StudyLesson[]
   questions: StudyQuestion[]
+  sourceActivities?: SourceActivity[]
+  readingPassages?: SourcePassage[]
+  answerSources?:{id:'a2-solutions';filename:string;pages:number;sha256:string;editionIsbn:string}[]
+}
+export interface SourceActivity {
+  id: string
+  chapter: string
+  source: StudyReference
+  verification: 'ai_pdf_visual_review'
+  humanVerified: false
+  evidence: { kind: 'printed_exercise' | 'table_derived'; text: string; page: number }
+  question: StudyQuestion
+}
+export interface SourcePassage {
+  id: string
+  chapter: string
+  german: string
+  arabic: string
+  source: StudyReference
+  bbox: number[]
+  provenance: 'source_extracted'
+  verification: 'ai_pdf_visual_review'
+  translationOrigin: 'generated_verified'
+  transcriptEvidence?:TranscriptEvidence
+  speakers?:string[]
 }
 
 const sourceKinds: StudyKind[] = ['a1-book', 'a2-book', 'a1-vocab', 'a2-vocab']
@@ -102,7 +149,7 @@ export function normalizeStudyAnswer(value: string, language: 'de' | 'ar' = 'de'
 
 const keys = (values: string[], lang: 'ar' | 'de' = 'de') => new Set(values.map(value => normalizeStudyAnswer(value, lang)))
 
-export function validateStudyPack(value: unknown): StudyPack {
+export function validateStudyPack(value: unknown, allowSourceDerived = false): StudyPack {
   const data = record(value)
   if (data.format !== 'german-quiz-study' || data.version !== 1) throw new Error('Unsupported study package')
   const sources = list(data.sources, 4, 'sources')
@@ -136,6 +183,14 @@ export function validateStudyPack(value: unknown): StudyPack {
   function checked(item: Record<string, unknown>) {
     const chapter = chapterById.get(item.chapter)
     const source = record(item.source)
+    if (item.origin === 'source_derived') {
+      if (!allowSourceDerived || !chapter || source.document !== chapter.source || !int(source.page) ||
+          source.page < Number(chapter.startPage) || source.page > Number(chapter.endPage) ||
+          item.verification !== 'ai_pdf_visual_review' || item.humanVerified !== false ||
+          typeof item.topic !== 'string' || !item.topic.startsWith(chapter.id + ':pdf-') ||
+          !german(item.german) || !arabic(item.arabic) || !arabic(item.explanation)) throw new Error('Invalid source lesson')
+      return
+    }
     if (!chapter || chapter.source !== source.document || source.page !== chapter.overviewPage ||
         item.origin !== 'authored' || item.verification !== 'editorial_checked' ||
         !german(item.german) || !arabic(item.arabic) || !arabic(item.explanation)) {
@@ -156,7 +211,25 @@ export function validateStudyPack(value: unknown): StudyPack {
   const questions = list(data.questions, 12000, 'questions')
   const ids = new Set<string>()
   for (const question of questions) {
-    checked(question)
+    const derived = question.origin === 'source_derived'
+    if (derived) {
+      const chapter = chapterById.get(question.chapter)
+      const source = record(question.source)
+      const isReading = question.type === 'reading'
+      const isActivity = typeof question.sourceActivityRef === 'string'
+      const isBook = isReading || isActivity
+      const expectedDocument = String(question.chapter).startsWith('A1:') ?
+        isBook ? 'a1-book' : 'a1-vocab' : isBook ? 'a2-book' : 'a2-vocab'
+      const inventory = sources.find(item => item.id === expectedDocument)
+      if (!allowSourceDerived || !chapter || source.document !== expectedDocument || !int(source.page) ||
+          Number(source.page) > Number(inventory?.pages) ||
+          (isBook && (Number(source.page) < Number(chapter.startPage) || Number(source.page) > Number(chapter.endPage))) || question.verification !== 'automated_checked' ||
+          !(isActivity ? ['verb', 'cloze', 'grammar', 'order', 'flashcard', 'transform', 'error', 'case'] : ['vocabulary', 'reading']).includes(String(question.type)) || !(question.topic === '' || isActivity && lessonByTopic.get(question.topic)?.chapter === question.chapter) ||
+          (isReading ? !question.passageRef : isActivity ? false : !question.sourceEvidence) ||
+          !german(question.german) || !arabic(question.arabic) || !arabic(question.explanation)) {
+        throw new Error('Invalid source-derived material: '+String(question.id))
+      }
+    } else checked(question)
     const { id, type, prompt, instruction, answers, choices, tokens, passageArabic, promptLanguage, answerLanguage } = question
     const lang = answerLanguage === 'ar' || (answerLanguage === undefined && (type === 'reading' || type === 'flashcard')) ? 'ar' : 'de'
     const requiresChoices = ['cloze', 'case', 'verb', 'grammar', 'reading'].includes(type as string)
@@ -166,9 +239,9 @@ export function validateStudyPack(value: unknown): StudyPack {
         (answerLanguage !== undefined && answerLanguage !== 'ar' && answerLanguage !== 'de') ||
         !textList(answers) || answers.some(value => !normalizeStudyAnswer(value, lang)) || keys(answers, lang).size !== answers.length ||
         (type === 'writing' ? answers.length !== 0 : answers.length === 0) ||
-        lessonByTopic.get(question.topic)?.chapter !== question.chapter ||
+        (!derived && lessonByTopic.get(question.topic)?.chapter !== question.chapter) ||
         (type === 'writing' && (!german(question.model) || !arabic(passageArabic))) ||
-        (type === 'reading' && !arabic(passageArabic))) throw new Error('Invalid practice item')
+        (type === 'reading' && !arabic(passageArabic))) throw new Error('Invalid practice item: ' + String(id))
     if (choices !== undefined || requiresChoices) {
       if (!textList(choices) || choices.length < 2 || choices.length > 6 || keys(choices, lang).size !== choices.length ||
           choices.filter(choice => keys(answers, lang).has(normalizeStudyAnswer(choice, lang))).length !== 1) {

@@ -1,11 +1,11 @@
-import { factType, type PersonalQuiz } from './personal-quiz'
-import { feedbackExamples } from './pilot'
-import { germanKey, questionChoices, type Mode } from './quiz'
-import { grammarTypes, isGrammarMode } from './question-types'
-import type { PersonalEntry } from './personal-data'
-import type { StudyQuestion, StudyKind } from './study-content'
-import { vocabularyFlashcards, type FlashcardMode } from './study-flashcards'
-import { fromStudyQuestion, type Candidate, type PracticeChapter, type Activity, type Scope } from './practice'
+import { factType, type PersonalQuiz } from './personal-quiz.ts'
+import { feedbackExamples } from './pilot.ts'
+import { germanKey, questionChoices, type Mode } from './quiz.ts'
+import { grammarTypes, isGrammarMode } from './question-types.ts'
+import type { PersonalEntry } from './personal-data.ts'
+import type { StudyQuestion, StudyKind } from './study-content.ts'
+import { vocabularyFlashcards, type FlashcardMode } from './study-flashcards.ts'
+import { fromStudyQuestion, type Candidate, type PracticeChapter, type Activity, type Scope } from './practice.ts'
 
 const instruction: Record<'de-ar' | 'ar-de' | 'article' | 'verb' | 'adjective', string> = {
   'de-ar': 'اختر المعنى بالعربية', 'ar-de': 'اختر الكلمة بالألمانية',
@@ -42,7 +42,7 @@ export function vocabularyCandidates(bank: PersonalQuiz, scope: Scope, expanded:
           return {
             id, chapter, type: activity === 'verb' ? 'verb' : 'vocabulary', topic: '',
             origin: 'vocabulary', verification: entry.vocabularyStatus === 'reviewed' ? 'reviewed' : 'automated_checked',
-            source: { document: (ref.level === 'A1' ? 'a1-vocab' : 'a2-vocab') as StudyKind, page: ref.page },
+            source: { document: ref.document ?? (ref.level === 'A1' ? 'a1-vocab' : 'a2-vocab') as StudyKind, page: ref.page },
             prompt: fact.prompt.text, promptLanguage: fact.prompt.lang, answerLanguage: fact.correct.lang, hint: fact.hint,
             instruction: isGrammarMode(mode) ? grammarTypes[mode][2] : instruction[mode],
             answers: [fact.correct.text], choices: questionChoices(fact, catalog).map(item => item.text),

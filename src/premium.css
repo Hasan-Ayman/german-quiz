@@ -156,3 +156,5 @@ body { font-family: "Segoe UI", Tahoma, Arial, sans-serif; }
 .related-mistakes { color: var(--green); text-decoration: underline; text-underline-offset: .18em; font-size: .86rem; }
 .workload-values > div { border-block-end: 1px solid var(--line); padding-block: .5rem; }
 .workload-values dd { color: var(--gold); font-weight: 750; }
+
+.passage-translation { white-space: pre-line; }

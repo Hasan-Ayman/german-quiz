@@ -5,6 +5,7 @@ import { ImportProblem, requireImportFields } from './import-problem.ts'
 export const sourceParts = ['noun', 'verb', 'adjective', 'adverb'] as const
 export type SourcePart = typeof sourceParts[number]
 export type ChapterKey = `${Level}:${number}`
+export const bookFilenames = { A1: 'Copy of Spektrum Deutsch A1 Kurs- und Arbeitsbuch.pdf', A2: 'Spektrum Deutsch A2plus KB und AB.pdf' } as const
 export const pronouns = ['ich', 'du', 'er/sie/es', 'wir', 'ihr', 'sie/Sie'] as const
 export const sourceFields = ['article', 'article_note', 'plural', 'preterite', 'perfect', 'comparative',
   'superlative', 'adverb_type', 'example_sentence'] as const
@@ -27,6 +28,8 @@ export interface SourceRow extends Record<Field, string | null> {
   chapter_number: number
   chapter_title: string
   source_pdf: string
+  source_document?: 'a1-book' | 'a2-book'
+  book_evidence?: { sha256: string; review_method: 'ai_pdf_visual_review'; humanVerified: false; translation_origin: 'generated' }
   source_page: number
   source_row: number
   source_bbox: number[]
@@ -84,10 +87,15 @@ export function readSourceRows(input: unknown): SourceRow[] {
       'raw_cells', 'arabic_logical_lines', 'extraction_flags', 'validation_issues', 'plural_marker',
       'gradation_marker', 'derived', ...sourceFields])
     const part = row.part_of_speech as SourcePart
+    const book = row.source_document === (String(row.level).toLowerCase() + '-book')
+    const evidence = book ? object(row.book_evidence) : null
+    if (row.source_document !== undefined && (!book || !isLevel(row.level) || row.source_pdf !== bookFilenames[row.level] ||
+        !evidence || !/^[a-f0-9]{64}$/u.test(String(evidence.sha256)) || evidence.review_method !== 'ai_pdf_visual_review' ||
+        evidence.humanVerified !== false || evidence.translation_origin !== 'generated' || row.verification_status !== 'automated_pass')) throw new Error('Invalid book vocabulary provenance')
     if (!isLevel(row.level) || !sourceParts.includes(part) || !positive(row.chapter_number, 12) ||
-        !positive(row.source_page, row.level === 'A1' ? 62 : 50) || !positive(row.source_row, 99) ||
-        row.source_pdf !== row.level + '.pdf' || !text(row.chapter_title, 300) ||
-        row.id !== [row.level.toLowerCase(), String(row.chapter_number).padStart(2, '0'), part,
+        !positive(row.source_page, book ? row.level === 'A1' ? 276 : 292 : row.level === 'A1' ? 62 : 50) || !positive(row.source_row, 99) ||
+        row.source_pdf !== (book ? bookFilenames[row.level] : row.level + '.pdf') || !text(row.chapter_title, 300) ||
+        row.id !== [row.level.toLowerCase(), String(row.chapter_number).padStart(2, '0'), ...(book?['book']:[]), part,
           String(row.source_row).padStart(2, '0')].join('-') || ids.has(row.id as string) ||
         !Array.isArray(row.source_bbox) || row.source_bbox.length !== 4 ||
         !row.source_bbox.every(n => typeof n === 'number' && Number.isFinite(n)) ||
@@ -141,9 +149,10 @@ export function readSourceRows(input: unknown): SourceRow[] {
     if (row.examples === undefined) return row as unknown as SourceRow
     if (!Array.isArray(row.examples) || row.examples.length > 30) throw new Error('Invalid example archive')
     const examples = row.examples.map(readSourceExample)
-    const originals = examples.filter(example => example.source_type === 'source_pdf')
+    const originals = examples.filter(example => example.source_type === 'source_pdf' && !example.textbook_source)
     if (originals.length !== (row.example_sentence ? 1 : 0) ||
         examples.some(example => example.source_row_id !== row.id || example.level !== row.level) ||
+        examples.some(example => example.textbook_source && (!book || example.textbook_source.document!==row.source_document || example.textbook_source.sha256!==evidence?.sha256)) ||
         originals.some(example => example.source_page !== row.source_page || example.german !== row.example_sentence)) {
       throw new Error('Source example archive does not match the printed row')
     }

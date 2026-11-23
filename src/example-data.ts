@@ -12,7 +12,7 @@ export function readExampleMetadata(value: Record<string, unknown>): ExampleMeta
   if ((source_type !== 'source_pdf' && source_type !== 'generated') ||
       typeof grammar_focus !== 'string' || !grammar_focus.trim() || grammar_focus.length > 200 ||
       (verification_status !== 'language_checked' && verification_status !== 'previously_reviewed' && verification_status !== 'needs_review') ||
-      typeof source_row_id !== 'string' || !/^a[12]-\d\d-(?:noun|verb|adjective|adverb)-\d\d$/u.test(source_row_id) ||
+      typeof source_row_id !== 'string' || !/^a[12]-\d\d-(?:book-)?(?:noun|verb|adjective|adverb)-\d\d$/u.test(source_row_id) ||
       (source_type === 'generated' ? source_page !== null : !Number.isInteger(source_page) || Number(source_page) < 1) ||
       (verification_status === 'needs_review' ? value.arabic !== null || source_type !== 'source_pdf'
         : typeof value.arabic !== 'string' || !/\p{Script=Arabic}/u.test(value.arabic))) {
@@ -25,8 +25,14 @@ export function readExampleMetadata(value: Record<string, unknown>): ExampleMeta
         typeof record.evidence !== 'string' || !/^[a-f0-9]{64}$/u.test(record.evidence)) throw new Error('Missing example review evidence')
     review = { ...record, method: record.method, evidence: record.evidence }
   }
+  const proof=value.textbook_source as ExampleMetadata['textbook_source']
+  if(proof && (source_type!=='source_pdf' || !['a1-book','a2-book'].includes(proof.document) ||
+      !/^[a-f0-9]{64}$/u.test(proof.sha256) || proof.method!=='ai_pdf_visual_review' || proof.humanVerified!==false ||
+      !['chapter','grammar_reference'].includes(proof.section) ||
+      (proof.section==='chapter' ? !Number.isInteger(proof.chapter)||Number(proof.chapter)<1||Number(proof.chapter)>12 : proof.chapter!==null) ||
+      !Array.isArray(proof.bbox)||proof.bbox.length!==4||!proof.bbox.every(Number.isFinite))) throw new Error('Invalid textbook example evidence')
   return { source_type, grammar_focus, verification_status, source_page: source_page as number | null,
-    source_row_id, ...(review ? { example_review: review } : {}) }
+    source_row_id, ...(review ? { example_review: review } : {}), ...(proof?{textbook_source:proof}:{}) }
 }
 
 export function readSourceExample(value: unknown): SourceExample {

@@ -19,6 +19,9 @@ export function vocabularyFlashcards(dataset: PersonalDataset, filter: StudyFilt
       (!filter.chapters.length || filter.chapters.includes(source.level + ':' + source.chapter)))
     if (!ref || !entry.arabic_translations.length) continue
     const original = sourceRows.get(ref.id)
+    const excluded=(modes:string[])=>(dataset.questionExclusions??[]).some(e=>e.sourceRowId===ref.id&&modes.includes(e.mode))
+    if(mode==='article'&&excluded(['article'])||mode==='plural'&&excluded(['noun-plural'])||
+      mode==='past'&&excluded(['verb-preterite','verb-perfect'])||mode==='comparison'&&excluded(['adjective-comparative','adjective-superlative']))continue
     const gloss = entry.arabic_translations.join(' / ')
     const lemma = [entry.article, entry.german].filter(Boolean).join(' ')
     const chapter = ref.level + ':' + ref.chapter
@@ -66,7 +69,7 @@ export function vocabularyFlashcards(dataset: PersonalDataset, filter: StudyFilt
       }
     }
     cards.push({ id: 'card:' + mode + ':' + entry.id, type: 'flashcard', chapter, topic: '', part: entry.part_of_speech,
-      source: { document: (ref.level.toLowerCase() + '-vocab') as StudyKind, page: ref.page },
+      source: { document: ref.document ?? (ref.level.toLowerCase() + '-vocab') as StudyKind, page: ref.page },
       origin: 'vocabulary', verification: entry.vocabularyStatus === 'reviewed' ? 'reviewed' : 'automated_checked',
       prompt, promptLanguage, answerLanguage, answers, instruction: flashcardModes[mode],
       explanation: gloss, german: example?.german ?? lemma, arabic: example?.arabic ?? gloss })

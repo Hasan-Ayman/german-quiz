@@ -10,7 +10,8 @@
   "scripts": {
     "dev": "vite",
     "test": "vitest run",
-    "test:browser": "node tests/browser-smoke.mjs",
+    "test:browser": "node tests/simple-learning.browser.mjs",
+    "test:browser:legacy-sessions": "node tests/legacy-session.browser.mjs",
     "build": "tsc --noEmit && vite build && node scripts/build_pwa.mjs && npm run verify:public",
     "verify:public": "node scripts/verify_public_build.mjs",
     "export:vocabulary": "node scripts/export_personal_vocabulary.mjs",

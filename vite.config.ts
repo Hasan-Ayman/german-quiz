@@ -10,7 +10,7 @@ export default defineConfig({
       '**/reports/**', '**/source-pdfs/**', '**/private/**', '**/backups/**', '**/tmp/**', '**/*.[pP][dD][fF]',
       '**/*personal-vocabulary*.json', '**/*complete-private*.json', '**/*private-vocabulary*.json',
       '**/*vocabulary-backup*.json', '**/*.backup.json',
-      '**/study-private/**', '**/*-private*.json', '**/reviewed-*.json'] },
+      '**/study-private/**', '**/*-private*.json', '**/reviewed-*.json', '**/german-quiz-final-complete.json'] },
   },
   plugins: [react()],
 })

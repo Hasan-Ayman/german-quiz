@@ -123,7 +123,7 @@ export function fromStudyQuestion(item: StudyQuestion): Candidate {
   const prompt = normalizeStudyAnswer(item.prompt, item.promptLanguage ?? 'de')
   const instruction = item.type === 'writing' || item.type === 'reading' ? item.instruction : ''
   const key = item.origin === 'vocabulary' ? item.id : JSON.stringify([item.type, prompt, answer, instruction])
-  return { id: item.id, key, chapter: item.chapter, activity: item.type, origin: item.origin,
+  return { id: item.id, key, chapter: item.chapter, activity: item.activity ?? item.type, origin: item.origin,
     topic: item.topic, part: item.part, searchText: [item.prompt, item.german, item.arabic, item.instruction].join(' '), make: () => item }
 }
 

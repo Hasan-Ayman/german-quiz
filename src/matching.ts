@@ -7,7 +7,7 @@ import { fromStudyQuestion, type Scope } from './practice.ts'
 export function matchingCandidates(bank: PersonalQuiz, scope: Scope, expanded: boolean) {
   const level = scope === 'A1' ? 'A1' : 'A2'
   const catalog = expanded ? bank.getExpandedCatalog(level) : bank.catalogs[level]
-  const pools = new Map<string, { entry: PersonalEntry; arabic: string; page: number }[]>()
+  const pools = new Map<string, { entry: PersonalEntry; arabic: string; page: number; document:StudyQuestion['source']['document'] }[]>()
   for (const fact of catalog.facts.values()) {
     if (fact.mode !== 'de-ar') continue
     const entry = fact.entry as PersonalEntry
@@ -19,7 +19,7 @@ export function matchingCandidates(bank: PersonalQuiz, scope: Scope, expanded: b
       usedChapters.add(chapter)
       const poolKey = chapter + ':' + entry.vocabularyStatus
       const pool = pools.get(poolKey) ?? []
-      pool.push({ entry, arabic: fact.correct.text, page: ref.page })
+      pool.push({ entry, arabic: fact.correct.text, page: ref.page,document:ref.document??(ref.level==='A1'?'a1-vocab':'a2-vocab') })
       pools.set(poolKey, pool)
     }
   }
@@ -27,7 +27,6 @@ export function matchingCandidates(bank: PersonalQuiz, scope: Scope, expanded: b
   const result = []
   for (const [poolKey, input] of pools) {
     const chapter = poolKey.split(':').slice(0, 2).join(':')
-    const document = chapter.startsWith('A1') ? 'a1-vocab' : 'a2-vocab'
     const pool = input.sort((a, b) => a.entry.id.localeCompare(b.entry.id))
     const used = new Set<string>()
     for (const first of pool) {
@@ -42,7 +41,7 @@ export function matchingCandidates(bank: PersonalQuiz, scope: Scope, expanded: b
       }
       if (group.length < 2) continue
       for (const item of group) used.add(item.entry.id)
-      const pairs = group.map(({ entry, arabic, page }) => ({ german: entry.german, arabic, source: { document, page } } as const))
+      const pairs = group.map(({ entry, arabic, page,document }) => ({ german: entry.german, arabic, source: { document, page } } as const))
       const id = 'match:' + chapter + ':' + stableKey(group.map(item => item.entry.id).join(':'))
       const item: StudyQuestion = { id, chapter, type: 'matching', topic: '', origin: 'vocabulary',
         verification: first.entry.vocabularyStatus === 'reviewed' ? 'reviewed' : 'automated_checked', pairs,

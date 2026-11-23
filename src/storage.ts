@@ -1,8 +1,8 @@
-import { isLevel, type Level, type Reliability } from './pilot'
+import { isLevel, type Level, type Reliability } from './pilot.ts'
 import { defaultQuestionCount, isQuestionCount, restoreQuestion, type Attempt, type Catalog,
-  type Question, type QuestionCount } from './quiz'
-import { selectableTypes } from './question-types'
-import type { ChapterKey } from './source-data'
+  type Question, type QuestionCount } from './quiz.ts'
+import { selectableTypes } from './question-types.ts'
+import type { ChapterKey } from './source-data.ts'
 
 const prefix = 'german-quiz:'
 export type Theme = 'light' | 'dark'

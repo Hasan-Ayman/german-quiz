@@ -22,7 +22,7 @@ export async function preparePersonalQuiz(dataset: PersonalDataset): Promise<Per
   const groups = dataset.distractorGroups
   const makeCatalog = (entries: typeof reviewed, level: Level, strict: boolean) => {
     const base = buildCatalog(entries, level, strict, groups)
-    return sourceRows ? extendWithGrammar(base, entries, dataset.entries, sourceRows, level) : base
+    return sourceRows ? extendWithGrammar(base, entries, dataset.entries, sourceRows, level, dataset.questionExclusions) : base
   }
   const catalogs = { A1: makeCatalog(reviewed, 'A1', false), A2: makeCatalog(reviewed, 'A2', false) }
   const automaticAvailable = reviewed.length !== dataset.entries.length
@@ -43,7 +43,7 @@ export async function preparePersonalQuiz(dataset: PersonalDataset): Promise<Per
   const versionedData = sourceRows ? [answerData, groups, sourceRows.map(row =>
     [row.review_fingerprint, row.verification_status, row.plural_marker, row.gradation_marker, row.derived,
       row.examples?.map(example => [example.german, example.verification_status, Boolean(example.arabic)])])] : [answerData, groups]
-  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(versionedData)))
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(dataset.questionExclusions?.length ? [versionedData, dataset.questionExclusions] : versionedData)))
   const revision = Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('')
   const importedCounts = Object.fromEntries(levels.map(level =>
     [level, dataset.entries.filter(entry => entry.levels.includes(level)).length])) as Record<Level, number>

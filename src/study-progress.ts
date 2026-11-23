@@ -1,7 +1,7 @@
 import { activities, type Activity } from './practice.ts'
 import type { PartOfSpeech } from './pilot.ts'
 import { studyTypes, type StudyQuestion } from './study-content.ts'
-import { readStudyRecord, updateStudyRecord } from './study-storage.ts'
+import { readStudyHistory, updateStudyRecord } from './study-storage.ts'
 
 export const studyResults = ['correct', 'incorrect', 'known', 'missed', 'completed'] as const
 export type StudyResult = typeof studyResults[number]
@@ -15,6 +15,9 @@ export type StudyEvent = {
   activity?: Activity
   part?: PartOfSpeech
   answer?: string
+  sessionId?: string
+  optionIndex?: number
+  skill?: string
   time: number
   result: StudyResult
 }
@@ -24,11 +27,15 @@ const intervals = [1, 3, 7, 14, 30]
 const scored = (item: StudyEvent) => item.result === 'correct' || item.result === 'incorrect'
 const missed = (item: StudyEvent) => item.result === 'incorrect' || item.result === 'missed'
 const safeId = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9:_-]{1,160}$/u.test(value)
+// Printed pronoun groups are part of existing stable verb-question IDs. Accept
+// those exact IDs without rewriting them or loosening event/topic identifiers.
+const safeQuestionId = (value: unknown): value is string => safeId(value) || typeof value === 'string' && value.length <= 160 &&
+  /^study:[A-Za-z0-9:_-]+:verb-present:(?:er\/sie\/es|sie\/Sie):A[12]:(?:[1-9]|1[0-2])$/u.test(value)
 
 function checkedEvent(value: unknown): StudyEvent {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid study progress record')
-  const { id, questionId, chapter, topic, type, time, result, evidenceVersion, activity, part, answer } = value as Record<string, unknown>
-  if (!safeId(id) || !safeId(questionId) || typeof chapter !== 'string' || !/^A[12]:(?:[1-9]|1[0-2])$/u.test(chapter) ||
+  const { id, questionId, chapter, topic, type, time, result, evidenceVersion, activity, part, answer, sessionId, optionIndex, skill } = value as Record<string, unknown>
+  if (!safeId(id) || !safeQuestionId(questionId) || typeof chapter !== 'string' || !/^A[12]:(?:[1-9]|1[0-2])$/u.test(chapter) ||
       typeof topic !== 'string' || (topic !== '' && (!safeId(topic) || !topic.startsWith(chapter + ':'))) ||
       !(type === 'matching' || studyTypes.includes(type as typeof studyTypes[number])) || typeof time !== 'number' || !Number.isSafeInteger(time) ||
       time < 1 || time > Date.now() + day || !studyResults.includes(result as StudyResult) ||
@@ -37,10 +44,15 @@ function checkedEvent(value: unknown): StudyEvent {
   if ((evidenceVersion !== undefined && evidenceVersion !== 2) ||
       (activity !== undefined && (typeof activity !== 'string' || !Object.hasOwn(activities, activity))) ||
       (part !== undefined && !['noun', 'verb', 'adjective', 'adverb'].includes(part as string)) ||
+      (sessionId !== undefined && !safeId(sessionId)) ||
+      (optionIndex !== undefined && (typeof optionIndex !== 'number' || !Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex > 7)) ||
+      (skill !== undefined && !safeId(skill)) ||
       (answer !== undefined && (typeof answer !== 'string' || answer.length > 2000))) throw new Error('Invalid attempt evidence')
   return { id, questionId, chapter, topic, type: type as StudyQuestion['type'], time, result: result as StudyResult,
     ...(evidenceVersion === 2 ? { evidenceVersion } : {}), ...(activity ? { activity: activity as Activity } : {}),
-    ...(part ? { part: part as PartOfSpeech } : {}), ...(typeof answer === 'string' ? { answer } : {}) }
+    ...(part ? { part: part as PartOfSpeech } : {}), ...(typeof answer === 'string' ? { answer } : {}),
+    ...(typeof sessionId === 'string' ? {sessionId} : {}), ...(typeof optionIndex === 'number' ? {optionIndex} : {}),
+    ...(typeof skill === 'string' ? {skill} : {}) }
 }
 
 function compareEvents(a: StudyEvent, b: StudyEvent) {
@@ -50,30 +62,38 @@ function compareEvents(a: StudyEvent, b: StudyEvent) {
 export function mergeStudyProgress(...inputs: unknown[]): StudyEvent[] {
   const byId = new Map<string, StudyEvent>()
   for (const input of inputs) {
-    if (!Array.isArray(input) || input.length > 30_000) throw new Error('Invalid study progress')
+    if (!Array.isArray(input)) throw new Error('Invalid study progress')
     for (const raw of input) {
       const event = checkedEvent(raw)
       const previous = byId.get(event.id)
       if (previous && JSON.stringify(previous) !== JSON.stringify(event)) throw new Error('Conflicting activity ID')
       byId.set(event.id, event)
-      if (byId.size > 30_000) throw new Error('Study progress limit reached')
     }
   }
   return [...byId.values()].sort(compareEvents)
 }
 
-export function makeStudyEvent(question: StudyQuestion, result: StudyResult, id: string, answer: string): StudyEvent {
+export function makeStudyEvent(question: StudyQuestion, result: StudyResult, id: string, answer: string, details?: {sessionId: string; optionIndex: number; skill?: string; time: number}): StudyEvent {
   return checkedEvent({ id, questionId: question.id, chapter: question.chapter, topic: question.topic,
     type: question.type, result, time: Date.now(), evidenceVersion: 2, activity: question.activity,
-    part: question.part, ...(result === 'incorrect' && answer ? { answer } : {}) })
+    part: question.part, ...(result === 'incorrect' && answer ? { answer } : {}), ...details })
 }
+
+export const answerLogPrefix = 'answer-event:'
 
 export async function loadStudyProgress() {
-  return mergeStudyProgress(await readStudyRecord('progress') ?? [])
+  return mergeStudyProgress(...await readStudyHistory(answerLogPrefix))
 }
 
-export const saveStudyProgress = (events: unknown) =>
-  updateStudyRecord('progress', previous => mergeStudyProgress(previous ?? [], events))
+export async function saveStudyProgress(events: unknown) {
+  const existing = await loadStudyProgress()
+  const merged = mergeStudyProgress(existing, events)
+  const ids = new Set(existing.map(event => event.id))
+  const additions = merged.filter(event => !ids.has(event.id))
+  if (additions.length)
+    await updateStudyRecord('progress', previous => mergeStudyProgress(previous ?? [], additions))
+  return loadStudyProgress()
+}
 
 export function encodeProgress(events: StudyEvent[]) {
   return JSON.stringify({ format: 'german-quiz-study-progress', version: 2, events })
